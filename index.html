@@ -7,72 +7,168 @@
     <title>DriveStream</title>
     <link rel="manifest" href="manifest.json">
     <style>
-        :root { --bg: #000; --surface: #121212; --primary: #bb86fc; --text: #eee; }
-        body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        /* --- RESET & BASE --- */
+        :root { --bg: #0a0a0a; --card-bg: #111; --text: #fff; --flac: #0f0; --mp3: #f00; }
+        body { background: var(--bg); color: var(--text); font-family: 'Helvetica Neue', sans-serif; margin: 0; overflow-x: hidden; -webkit-tap-highlight-color: transparent; }
         
-        /* Header */
-        header { padding: 15px; background: var(--surface); border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
-        h1 { margin: 0; font-size: 1.2rem; font-weight: 700; letter-spacing: -0.5px; }
-        #auth-btn { background: var(--primary); border: none; padding: 8px 16px; border-radius: 4px; font-weight: 600; cursor: pointer; color: #000; }
+        /* --- HEADER --- */
+        header { padding: 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; background: rgba(10,10,10,0.95); backdrop-filter: blur(5px); }
+        h1 { margin: 0; font-size: 1rem; text-transform: uppercase; letter-spacing: 2px; }
+        #auth-btn { background: #fff; color: #000; border: none; padding: 8px 16px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; cursor: pointer; }
+
+        /* --- THE GRID (Veg/Non-Veg Style) --- */
+        #grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); 
+            gap: 2px; /* Tight gap for that fashion site look */
+            padding: 2px;
+            padding-bottom: 100px; /* Space for player */
+        }
+
+        /* --- FLIP CARD MECHANIC --- */
+        .card {
+            background-color: transparent;
+            aspect-ratio: 1 / 1; /* Perfect Square */
+            perspective: 1000px;
+            cursor: pointer;
+        }
+
+        .card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            transition: transform 0.6s;
+            transform-style: preserve-3d;
+        }
+
+        .card.flipped .card-inner {
+            transform: rotateY(180deg);
+        }
+
+        .card-front, .card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            -webkit-backface-visibility: hidden;
+            backface-visibility: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* FRONT: Abstract Cover */
+        .card-front {
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .cover-art { font-size: 2rem; font-weight: 900; opacity: 0.3; }
         
-        /* Track List (Scrollable) */
-        #track-list { flex: 1; overflow-y: auto; list-style: none; padding: 0; margin: 0; -webkit-overflow-scrolling: touch; }
-        .track { padding: 15px; border-bottom: 1px solid #222; cursor: pointer; transition: background 0.1s; }
-        .track:active { background: #333; }
-        .track-name { display: block; font-size: 1rem; margin-bottom: 4px; }
-        .track-meta { display: block; font-size: 0.8rem; color: #888; }
+        /* QUALITY INDICATOR (The "Veg" Dot) */
+        .quality-dot {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            box-shadow: 0 0 5px currentColor;
+        }
+
+        /* BACK: Details (Black) */
+        .card-back {
+            background-color: #000;
+            color: white;
+            transform: rotateY(180deg);
+            padding: 15px;
+            box-sizing: border-box;
+            border: 1px solid #333;
+        }
+
+        .meta-title { font-size: 0.9rem; font-weight: bold; margin-bottom: 5px; line-height: 1.2; }
+        .meta-info { font-size: 0.7rem; color: #888; margin-bottom: 15px; font-family: monospace; }
         
-        /* Player (Fixed Bottom) */
-        #player { background: var(--surface); padding: 15px; border-top: 1px solid #333; padding-bottom: calc(15px + env(safe-area-inset-bottom)); }
-        #now-playing { font-size: 0.9rem; margin-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--primary); text-align: center; }
-        audio { width: 100%; height: 40px; }
+        .play-btn-card {
+            border: 1px solid #fff;
+            background: transparent;
+            color: #fff;
+            padding: 8px 20px;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+        .play-btn-card:hover { background: #fff; color: #000; }
+
+        /* --- BOTTOM PLAYER --- */
+        #player-bar {
+            position: fixed;
+            bottom: 0; left: 0; width: 100%;
+            background: #000;
+            border-top: 1px solid #222;
+            padding: 10px 20px;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        #now-playing-info { flex: 1; margin-right: 10px; }
+        .np-title { font-size: 0.9rem; font-weight: bold; display: block; }
+        .np-status { font-size: 0.7rem; color: #666; display: block; }
+        audio { height: 30px; width: 150px; }
+
     </style>
 </head>
 <body>
 
     <header>
         <h1>DriveStream</h1>
-        <button id="auth-btn">Sync Drive</button>
+        <button id="auth-btn">Sync</button>
     </header>
 
-    <ul id="track-list">
-        <li style="padding:20px; text-align:center; color:#666;">Connect Google Drive to start</li>
-    </ul>
+    <div id="grid">
+        <div style="padding:40px; color:#444; grid-column: 1/-1; text-align:center;">
+            Tap "Sync" to load your library.
+        </div>
+    </div>
 
-    <div id="player">
-        <div id="now-playing">Not Playing</div>
-        <audio id="audio-engine" controls preload="metadata"></audio>
+    <div id="player-bar">
+        <div id="now-playing-info">
+            <span class="np-title">Nothing Playing</span>
+            <span class="np-status">Select a track</span>
+        </div>
+        <audio id="audio-engine" controls></audio>
     </div>
 
     <script src="https://apis.google.com/js/api.js"></script>
     <script src="https://accounts.google.com/gsi/client"></script>
     
     <script>
-        // CONFIGURATION - REPLACE THESE WITH YOURS
         const API_KEY = 'YOUR_API_KEY_HERE';
         const CLIENT_ID = 'YOUR_CLIENT_ID_HERE';
-        
         const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
+        
+        let state = { files: [], currentIndex: -1, token: null };
+        const audio = document.getElementById('audio-engine');
+        const grid = document.getElementById('grid');
         let tokenClient;
-        let storedToken = localStorage.getItem('g_access_token');
 
-        // 1. Initialize Google Identity Services
+        // --- AUTH ---
         function initAuth() {
             tokenClient = google.accounts.oauth2.initTokenClient({
                 client_id: CLIENT_ID,
                 scope: SCOPES,
                 callback: (resp) => {
-                    if (resp.error) return console.error(resp);
-                    localStorage.setItem('g_access_token', resp.access_token);
-                    loadDriveFiles(resp.access_token);
+                    if (resp.error) return;
+                    state.token = resp.access_token;
+                    sessionStorage.setItem('g_token', state.token);
+                    loadDriveFiles();
                 },
             });
-            
-            // Auto-load if token exists
-            if(storedToken) loadDriveFiles(storedToken);
+            const storedToken = sessionStorage.getItem('g_token');
+            if (storedToken) { state.token = storedToken; loadDriveFiles(); }
         }
-        
-        // 2. Load API & Client
+
         gapi.load('client', async () => {
             await gapi.client.init({ apiKey: API_KEY, discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] });
             initAuth();
@@ -80,65 +176,86 @@
 
         document.getElementById('auth-btn').onclick = () => tokenClient.requestAccessToken({ prompt: '' });
 
-        // 3. Fetch Files (FLAC/WAV Priority)
-        async function loadDriveFiles(token) {
+        // --- FETCH ---
+        async function loadDriveFiles() {
             try {
-                gapi.client.setToken({ access_token: token });
+                gapi.client.setToken({ access_token: state.token });
                 const res = await gapi.client.drive.files.list({
-                    pageSize: 100,
-                    fields: "files(id, name, mimeType, size)",
+                    pageSize: 1000,
+                    fields: "files(id, name, mimeType, size, createdTime)", 
                     q: "(mimeType contains 'audio/') and trashed = false",
-                    orderBy: "name"
+                    orderBy: "createdTime desc"
                 });
-                
-                renderList(res.result.files);
-            } catch (err) {
-                console.error("Token expired or error", err);
-                // Optionally auto-trigger re-auth here
-            }
+                state.files = res.result.files;
+                renderGrid();
+            } catch (err) { console.error(err); }
         }
 
-        function renderList(files) {
-            const list = document.getElementById('track-list');
-            list.innerHTML = '';
-            files.forEach(file => {
-                const li = document.createElement('li');
-                li.className = 'track';
-                li.innerHTML = `
-                    <span class="track-name">${file.name}</span>
-                    <span class="track-meta">${file.mimeType.split('/')[1].toUpperCase()} • ${(file.size / 1024 / 1024).toFixed(1)} MB</span>
+        // --- RENDER GRID (FLIP CARDS) ---
+        function renderGrid() {
+            grid.innerHTML = '';
+            state.files.forEach((file, index) => {
+                const isLossless = file.mimeType.includes('flac') || file.mimeType.includes('wav');
+                const fileSize = (file.size / 1024 / 1024).toFixed(1) + ' MB';
+                const fileType = file.mimeType.split('/')[1].toUpperCase();
+                const date = new Date(file.createdTime).getFullYear();
+                
+                // Color Code: Green for FLAC, Red for MP3
+                const dotColor = isLossless ? '#0f0' : '#d00';
+                
+                // Generate a consistent gradient based on name length
+                const hue = (file.name.length * 20) % 360;
+                const gradient = `linear-gradient(45deg, hsl(${hue}, 60%, 20%), hsl(${hue + 40}, 60%, 10%))`;
+
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.innerHTML = `
+                    <div class="card-inner">
+                        <div class="card-front" style="background: ${gradient}">
+                            <div class="quality-dot" style="color: ${dotColor}"></div>
+                            <div class="cover-art">${file.name.substring(0,2)}</div>
+                        </div>
+                        <div class="card-back">
+                            <div class="meta-title">${file.name}</div>
+                            <div class="meta-info">
+                                ${fileType} • ${fileSize}<br>
+                                Added: ${date}
+                            </div>
+                            <button class="play-btn-card" onclick="playTrack(${index}, event)">PLAY</button>
+                        </div>
+                    </div>
                 `;
-                li.onclick = () => playTrack(file);
-                list.appendChild(li);
+                
+                // Flip Logic: Click card to flip, but NOT if clicking the play button
+                card.onclick = (e) => {
+                    if(e.target.className !== 'play-btn-card') {
+                        card.classList.toggle('flipped');
+                    }
+                };
+
+                grid.appendChild(card);
             });
         }
 
-        // 4. Ultra-Fast Playback Logic
-        function playTrack(file) {
-            const audio = document.getElementById('audio-engine');
-            const status = document.getElementById('now-playing');
+        // --- PLAYBACK ---
+        function playTrack(index, event) {
+            if(event) event.stopPropagation(); // Don't flip back when clicking play
             
-            status.textContent = file.name;
+            state.currentIndex = index;
+            const file = state.files[index];
             
-            // Direct Stream URL
+            document.querySelector('.np-title').textContent = file.name;
+            document.querySelector('.np-status').textContent = "Streaming High Quality...";
+            
             audio.src = `https://drive.google.com/uc?export=download&id=${file.id}`;
             audio.play();
-
-            // Android Lock Screen Integration (Media Session API)
-            if ('mediaSession' in navigator) {
-                navigator.mediaSession.metadata = new MediaMetadata({
-                    title: file.name,
-                    artist: 'DriveStream High-Res',
-                    album: 'Google Drive',
-                    artwork: [ { src: 'https://via.placeholder.com/512', sizes: '512x512', type: 'image/png' } ]
-                });
-            }
+            
+            // Highlight playing card logic can go here (border color)
         }
+        
+        // Auto-Next
+        audio.addEventListener('ended', () => playTrack(state.currentIndex + 1));
 
-        // PWA Service Worker Registration
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js');
-        }
     </script>
 </body>
 </html>
