@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#000000">
+    <title>DriveStream</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        :root { --bg: #000; --surface: #121212; --primary: #bb86fc; --text: #eee; }
+        body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        
+        /* Header */
+        header { padding: 15px; background: var(--surface); border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+        h1 { margin: 0; font-size: 1.2rem; font-weight: 700; letter-spacing: -0.5px; }
+        #auth-btn { background: var(--primary); border: none; padding: 8px 16px; border-radius: 4px; font-weight: 600; cursor: pointer; color: #000; }
+        
+        /* Track List (Scrollable) */
+        #track-list { flex: 1; overflow-y: auto; list-style: none; padding: 0; margin: 0; -webkit-overflow-scrolling: touch; }
+        .track { padding: 15px; border-bottom: 1px solid #222; cursor: pointer; transition: background 0.1s; }
+        .track:active { background: #333; }
+        .track-name { display: block; font-size: 1rem; margin-bottom: 4px; }
+        .track-meta { display: block; font-size: 0.8rem; color: #888; }
+        
+        /* Player (Fixed Bottom) */
+        #player { background: var(--surface); padding: 15px; border-top: 1px solid #333; padding-bottom: calc(15px + env(safe-area-inset-bottom)); }
+        #now-playing { font-size: 0.9rem; margin-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--primary); text-align: center; }
+        audio { width: 100%; height: 40px; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>DriveStream</h1>
+        <button id="auth-btn">Sync Drive</button>
+    </header>
+
+    <ul id="track-list">
+        <li style="padding:20px; text-align:center; color:#666;">Connect Google Drive to start</li>
+    </ul>
+
+    <div id="player">
+        <div id="now-playing">Not Playing</div>
+        <audio id="audio-engine" controls preload="metadata"></audio>
+    </div>
+
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client"></script>
+    
+    <script>
+        // CONFIGURATION - REPLACE THESE WITH YOURS
+        const API_KEY = 'YOUR_API_KEY_HERE';
+        const CLIENT_ID = 'YOUR_CLIENT_ID_HERE';
+        
+        const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
+        let tokenClient;
+        let storedToken = localStorage.getItem('g_access_token');
+
+        // 1. Initialize Google Identity Services
+        function initAuth() {
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: CLIENT_ID,
+                scope: SCOPES,
+                callback: (resp) => {
+                    if (resp.error) return console.error(resp);
+                    localStorage.setItem('g_access_token', resp.access_token);
+                    loadDriveFiles(resp.access_token);
+                },
+            });
+            
+            // Auto-load if token exists
+            if(storedToken) loadDriveFiles(storedToken);
+        }
+        
+        // 2. Load API & Client
+        gapi.load('client', async () => {
+            await gapi.client.init({ apiKey: API_KEY, discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] });
+            initAuth();
+        });
+
+        document.getElementById('auth-btn').onclick = () => tokenClient.requestAccessToken({ prompt: '' });
+
+        // 3. Fetch Files (FLAC/WAV Priority)
+        async function loadDriveFiles(token) {
+            try {
+                gapi.client.setToken({ access_token: token });
+                const res = await gapi.client.drive.files.list({
+                    pageSize: 100,
+                    fields: "files(id, name, mimeType, size)",
+                    q: "(mimeType contains 'audio/') and trashed = false",
+                    orderBy: "name"
+                });
+                
+                renderList(res.result.files);
+            } catch (err) {
+                console.error("Token expired or error", err);
+                // Optionally auto-trigger re-auth here
+            }
+        }
+
+        function renderList(files) {
+            const list = document.getElementById('track-list');
+            list.innerHTML = '';
+            files.forEach(file => {
+                const li = document.createElement('li');
+                li.className = 'track';
+                li.innerHTML = `
+                    <span class="track-name">${file.name}</span>
+                    <span class="track-meta">${file.mimeType.split('/')[1].toUpperCase()} • ${(file.size / 1024 / 1024).toFixed(1)} MB</span>
+                `;
+                li.onclick = () => playTrack(file);
+                list.appendChild(li);
+            });
+        }
+
+        // 4. Ultra-Fast Playback Logic
+        function playTrack(file) {
+            const audio = document.getElementById('audio-engine');
+            const status = document.getElementById('now-playing');
+            
+            status.textContent = file.name;
+            
+            // Direct Stream URL
+            audio.src = `https://drive.google.com/uc?export=download&id=${file.id}`;
+            audio.play();
+
+            // Android Lock Screen Integration (Media Session API)
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: file.name,
+                    artist: 'DriveStream High-Res',
+                    album: 'Google Drive',
+                    artwork: [ { src: 'https://via.placeholder.com/512', sizes: '512x512', type: 'image/png' } ]
+                });
+            }
+        }
+
+        // PWA Service Worker Registration
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js');
+        }
+    </script>
+</body>
+</html>
