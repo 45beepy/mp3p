@@ -1,5 +1,7 @@
 import './style.css'
-
+// Add these lines at the top of src/main.ts
+declare const gapi: any;
+declare const google: any;
 // 1. Type Definitions (The Java/Kotlin part of you will like this)
 interface DriveFile {
   id: string;
