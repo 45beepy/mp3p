@@ -29,7 +29,7 @@ let state: AppState = {
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
   <header style="padding: 20px; display:flex; justify-content:space-between;">
-    <h1>mp3p</h1>
+    <h1>.MP3P</h1>
     <button id="auth-btn">SYNC</button>
   </header>
   <div id="grid"></div>
