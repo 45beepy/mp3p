@@ -15,10 +15,10 @@ interface AppState {
   files: DriveFile[];
   currentIndex: number;
   token: string | null;
-}
+} 
 
-const API_KEY = 'YOUR_API_KEY';
-const CLIENT_ID = 'YOUR_CLIENT_ID';
+const API_KEY = 'AIzaSyD53qoAMqp4Wu9nHSyaBbCzUn1j0gYK5Cw';
+const CLIENT_ID = '957252189604-cfmbh7s2rjbpbql8rcsrlc3bpu6m2cq5.apps.googleusercontent.com';
 const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
 
 let state: AppState = {
