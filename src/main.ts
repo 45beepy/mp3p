@@ -1,4 +1,5 @@
 import './style.css'
+import { Howl, Howler } from 'howler'
 
 declare const gapi: any;
 declare const google: any;
@@ -31,7 +32,8 @@ let state = {
   currentAlbum: null as DriveFile | null,
   playingFileId: null as string | null,
   isPlaying: false,
-  currentBlobUrl: null as string | null
+  currentBlobUrl: null as string | null,
+  currentSound: null as Howl | null
 };
 
 // --- DOM SETUP ---
@@ -78,14 +80,11 @@ app.innerHTML = `
       <button class="ctrl-btn" id="btn-next">⏭</button>
     </div>
   </div>
-  
-  <audio id="audio-engine"></audio>
 `;
 
 const mainView = document.getElementById('main-view')!;
 const backBtn = document.getElementById('back-btn')!;
 const pageTitle = document.getElementById('page-title')!;
-const audio = document.getElementById('audio-engine') as HTMLAudioElement;
 
 const pTitle = document.getElementById('p-title')!;
 const pArtist = document.getElementById('p-artist')!;
@@ -128,6 +127,7 @@ function initGis() {
   });
   document.getElementById('auth-btn')!.onclick = () => tokenClient.requestAccessToken({ prompt: '' });
   document.getElementById('logout-btn')!.onclick = () => { 
+    if (state.currentSound) state.currentSound.unload();
     Object.values(state.coverBlobCache).forEach(url => URL.revokeObjectURL(url));
     if (state.currentBlobUrl) URL.revokeObjectURL(state.currentBlobUrl);
     sessionStorage.clear(); 
@@ -286,7 +286,7 @@ function renderTrackList() {
     mainView.appendChild(list);
 }
 
-// --- PLAYER ENGINE (BLOB URL METHOD - WORKING SOLUTION) ---
+// --- PLAYER ENGINE (HOWLER.JS) ---
 async function play(index: number) {
     state.currentIndex = index;
     state.playlist = state.tracks;
@@ -305,6 +305,12 @@ async function play(index: number) {
         pArt.src = FALLBACK_COVER;
     }
 
+    // Stop and unload previous sound
+    if (state.currentSound) {
+        state.currentSound.unload();
+        state.currentSound = null;
+    }
+
     // Clean up previous blob URL
     if (state.currentBlobUrl) {
         URL.revokeObjectURL(state.currentBlobUrl);
@@ -312,7 +318,7 @@ async function play(index: number) {
     }
 
     try {
-        // Fetch audio file and create blob URL
+        // Fetch audio file
         const response = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
             headers: { 'Authorization': `Bearer ${state.token}` }
         });
@@ -322,45 +328,107 @@ async function play(index: number) {
         const blob = await response.blob();
         const blobUrl = URL.createObjectURL(blob);
         state.currentBlobUrl = blobUrl;
+
+        // Get file extension for format detection
+        const ext = file.name.split('.').pop()?.toLowerCase() || 'mp3';
         
-        audio.src = blobUrl;
-        
-        await audio.play();
-        state.isPlaying = true;
-        updatePlayBtn();
-        pTitle.innerText = file.name.replace(/\.[^/.]+$/, "").toUpperCase();
+        // Create Howler sound instance
+        state.currentSound = new Howl({
+            src: [blobUrl],
+            format: [ext],
+            html5: true, // Use HTML5 Audio for better compatibility
+            onload: () => {
+                console.log(`Loaded: ${file.name}`);
+            },
+            onplay: () => {
+                state.isPlaying = true;
+                updatePlayBtn();
+                pTitle.innerText = file.name.replace(/\.[^/.]+$/, "").toUpperCase();
+                startProgressUpdate();
+            },
+            onpause: () => {
+                state.isPlaying = false;
+                updatePlayBtn();
+            },
+            onend: () => {
+                state.isPlaying = false;
+                updatePlayBtn();
+                if (state.currentIndex < state.playlist.length - 1) {
+                    play(state.currentIndex + 1);
+                }
+            },
+            onerror: (id, err) => {
+                console.error("Howler Error:", err);
+                pTitle.innerText = "ERROR PLAYING";
+                pArtist.innerText = "FORMAT NOT SUPPORTED";
+            }
+        });
+
+        // Play the sound
+        state.currentSound.play();
+
+        // Media Session API
+        if ('mediaSession' in navigator) {
+            navigator.mediaSession.metadata = new MediaMetadata({
+                title: file.name.replace(/\.[^/.]+$/, ""),
+                artist: state.currentAlbum?.name || 'Unknown',
+                artwork: [{ src: pArt.src, sizes: '512x512', type: 'image/jpeg' }]
+            });
+            
+            navigator.mediaSession.setActionHandler('play', () => { 
+                if (state.currentSound) state.currentSound.play(); 
+            });
+            navigator.mediaSession.setActionHandler('pause', () => { 
+                if (state.currentSound) state.currentSound.pause(); 
+            });
+            navigator.mediaSession.setActionHandler('previoustrack', () => { 
+                if (state.currentIndex > 0) play(state.currentIndex - 1); 
+            });
+            navigator.mediaSession.setActionHandler('nexttrack', () => { 
+                if (state.currentIndex < state.playlist.length - 1) play(state.currentIndex + 1); 
+            });
+        }
         
     } catch (err) {
         console.error("Playback Error:", err);
         pTitle.innerText = "ERROR PLAYING";
         pArtist.innerText = "CHECK CONSOLE";
     }
+}
 
-    // Media Session Support
-    if ('mediaSession' in navigator) {
-        navigator.mediaSession.metadata = new MediaMetadata({
-            title: file.name.replace(/\.[^/.]+$/, ""),
-            artist: state.currentAlbum?.name || 'Unknown',
-            artwork: [{ src: pArt.src, sizes: '512x512', type: 'image/jpeg' }]
-        });
-        
-        navigator.mediaSession.setActionHandler('play', () => { audio.play(); state.isPlaying = true; updatePlayBtn(); });
-        navigator.mediaSession.setActionHandler('pause', () => { audio.pause(); state.isPlaying = false; updatePlayBtn(); });
-        navigator.mediaSession.setActionHandler('previoustrack', () => { if (state.currentIndex > 0) play(state.currentIndex - 1); });
-        navigator.mediaSession.setActionHandler('nexttrack', () => { if (state.currentIndex < state.playlist.length - 1) play(state.currentIndex + 1); });
-    }
+// --- PROGRESS BAR UPDATE ---
+let progressInterval: number | null = null;
+
+function startProgressUpdate() {
+    if (progressInterval) clearInterval(progressInterval);
+    
+    progressInterval = window.setInterval(() => {
+        if (state.currentSound && state.isPlaying) {
+            const seek = state.currentSound.seek() as number;
+            const duration = state.currentSound.duration();
+            
+            if (duration > 0) {
+                const pct = (seek / duration) * 100;
+                pBarFill.style.width = `${pct}%`;
+            }
+        }
+    }, 100);
 }
 
 // --- CONTROLS ---
-function updatePlayBtn() { btnPlay.innerText = state.isPlaying ? "⏸" : "▶"; }
+function updatePlayBtn() { 
+    btnPlay.innerText = state.isPlaying ? "⏸" : "▶"; 
+}
 
 btnPlay.onclick = () => { 
-    if (audio.paused) { 
-        audio.play(); 
-        state.isPlaying = true; 
+    if (!state.currentSound) return;
+    
+    if (state.currentSound.playing()) { 
+        state.currentSound.pause();
+        state.isPlaying = false;
     } else { 
-        audio.pause(); 
-        state.isPlaying = false; 
+        state.currentSound.play();
+        state.isPlaying = true;
     } 
     updatePlayBtn(); 
 };
@@ -373,20 +441,14 @@ btnPrev.onclick = () => {
     if (state.currentIndex > 0) play(state.currentIndex - 1); 
 };
 
-audio.ontimeupdate = () => {
-    if (!audio.duration) return;
-    const pct = (audio.currentTime / audio.duration) * 100;
-    pBarFill.style.width = `${pct}%`;
-};
-
-audio.onended = () => { 
-    if (state.currentIndex < state.playlist.length - 1) play(state.currentIndex + 1); 
-};
-
 pScrubber.onclick = (e) => {
+    if (!state.currentSound) return;
+    
     const rect = pBarBg.getBoundingClientRect();
     const pos = (e.clientX - rect.left) / rect.width;
-    audio.currentTime = pos * audio.duration;
+    const duration = state.currentSound.duration();
+    
+    state.currentSound.seek(pos * duration);
 };
 
 loadScripts();
