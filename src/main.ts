@@ -3,34 +3,6 @@ import './style.css'
 declare const gapi: any;
 declare const google: any;
 
-// --- TYPES ---
-interface DriveFile {
-  id: string;
-  name: string;
-  mimeType: string;
-  size?: string;
-  thumbnailLink?: string;
-  parents?: string[];
-}
-
-interface AppState {
-  view: 'albums' | 'tracks';
-  token: string | null;
-  
-  // Data
-  rootFolderId: string | null;
-  albums: DriveFile[];
-  currentAlbum: DriveFile | null;
-  tracks: DriveFile[];
-  
-  // Maps Album ID -> Cover URL
-  covers: Record<string, string>;
-  
-  // Player
-  playlist: DriveFile[];
-  currentIndex: number;
-} 
-
 // --- CONFIG ---
 const API_KEY = 'AIzaSyD53qoAMqp4Wu9nHSyaBbCzUn1j0gYK5Cw';
 const CLIENT_ID = '957252189604-cfmbh7s2rjbpbql8rcsrlc3bpu6m2cq5.apps.googleusercontent.com';
@@ -38,19 +10,24 @@ const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
 const MUSIC_FOLDER_NAME = 'mp3p_music'; 
 
 // --- STATE ---
-let state: AppState = {
-  view: 'albums',
+interface DriveFile { id: string; name: string; mimeType: string; size?: string; thumbnailLink?: string; parents?: string[]; }
+
+let state = {
   token: sessionStorage.getItem('g_token'),
-  rootFolderId: null,
-  albums: [],
-  currentAlbum: null,
-  tracks: [],
-  covers: {},
-  playlist: [],
-  currentIndex: -1
+  rootId: null as string | null,
+  albums: [] as DriveFile[],
+  tracks: [] as DriveFile[],
+  covers: {} as Record<string, string>,
+  
+  // Playback
+  playlist: [] as DriveFile[],
+  currentIndex: -1,
+  currentAlbum: null as DriveFile | null,
+  isPlaying: false,
+  blobUrl: null as string | null // To clean up memory
 };
 
-// --- DOM ---
+// --- DOM SETUP ---
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
   <header>
@@ -58,38 +35,75 @@ app.innerHTML = `
       <button id="back-btn" class="secondary" style="display:none;">←</button>
       <h1 id="page-title">.MP3P</h1>
     </div>
-    <button id="auth-btn">SYNC</button>
+    <div style="display:flex; gap:10px;">
+        <button id="logout-btn" class="secondary" style="font-size:0.6rem;">RESET</button>
+        <button id="auth-btn">SYNC</button>
+    </div>
   </header>
   
   <div id="main-view">
-    <div style="padding:40px; color:#666; text-align:center; margin-top:50px;">
-      Tap SYNC to load library<br>
-      (Reads "${MUSIC_FOLDER_NAME}")
+    <div style="padding:50px; text-align:center; color:#555;">
+      Tap <strong>SYNC</strong> to load library.<br><br>
+      (Reads folder: "${MUSIC_FOLDER_NAME}")
     </div>
   </div>
 
   <div id="player-bar">
-    <div id="np-title">Ready</div>
-    <audio id="audio-engine" controls></audio>
+    <div class="p-info">
+      <img id="p-art" class="p-art" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7">
+      <div class="p-text">
+        <div id="p-title" class="p-title">Not Playing</div>
+        <div id="p-artist" class="p-artist">Select a track</div>
+      </div>
+    </div>
+
+    <div class="p-center">
+      <div class="p-controls">
+        <button class="ctrl-btn" id="btn-prev">⏮</button>
+        <button class="ctrl-btn play-btn" id="btn-play">▶</button>
+        <button class="ctrl-btn" id="btn-next">⏭</button>
+      </div>
+      <div class="p-progress-container">
+        <span id="p-current">0:00</span>
+        <div id="p-bar-bg" class="p-bar-bg">
+          <div id="p-bar-fill" class="p-bar-fill"></div>
+        </div>
+        <span id="p-duration">-:--</span>
+      </div>
+    </div>
+    <div class="p-right"></div>
   </div>
+  
+  <audio id="audio-engine" crossorigin="anonymous"></audio>
 `;
 
 const mainView = document.getElementById('main-view')!;
 const backBtn = document.getElementById('back-btn')!;
 const pageTitle = document.getElementById('page-title')!;
 const audio = document.getElementById('audio-engine') as HTMLAudioElement;
-const status = document.getElementById('np-title')!;
 
-// --- GOOGLE LOADERS ---
+// Player Elements
+const pTitle = document.getElementById('p-title')!;
+const pArtist = document.getElementById('p-artist')!;
+const pArt = document.getElementById('p-art') as HTMLImageElement;
+const btnPlay = document.getElementById('btn-play')!;
+const btnNext = document.getElementById('btn-next')!;
+const btnPrev = document.getElementById('btn-prev')!;
+const pBarBg = document.getElementById('p-bar-bg')!;
+const pBarFill = document.getElementById('p-bar-fill')!;
+const pCurrent = document.getElementById('p-current')!;
+const pDuration = document.getElementById('p-duration')!;
+
+// --- INIT ---
 function loadScripts() {
-  const s1 = document.createElement('script');
-  s1.src = 'https://apis.google.com/js/api.js';
-  s1.onload = () => gapi.load('client', initGapi);
-  document.body.append(s1);
-
+  const s = document.createElement('script');
+  s.src = 'https://accounts.google.com/gsi/client';
+  s.onload = initGis;
+  document.body.append(s);
+  
   const s2 = document.createElement('script');
-  s2.src = 'https://accounts.google.com/gsi/client';
-  s2.onload = initGis;
+  s2.src = 'https://apis.google.com/js/api.js';
+  s2.onload = () => gapi.load('client', initGapi);
   document.body.append(s2);
 }
 
@@ -100,8 +114,7 @@ async function initGapi() {
 
 function initGis() {
   const tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: CLIENT_ID,
-    scope: SCOPES,
+    client_id: CLIENT_ID, scope: SCOPES,
     callback: (resp: any) => {
       if (resp.error) return;
       state.token = resp.access_token;
@@ -110,223 +123,182 @@ function initGis() {
     },
   });
   document.getElementById('auth-btn')!.onclick = () => tokenClient.requestAccessToken({ prompt: '' });
-  backBtn.onclick = showAlbumGrid;
+  document.getElementById('logout-btn')!.onclick = () => { sessionStorage.clear(); location.reload(); };
+  backBtn.onclick = showAlbums;
 }
 
-// --- LOGIC: SYNC ALBUMS ---
-
+// --- SYNC ---
 async function syncLibrary() {
   if (!state.token) return;
   gapi.client.setToken({ access_token: state.token });
 
   try {
-    mainView.innerHTML = `<div style="text-align:center; padding:40px; color:#888;">Finding "${MUSIC_FOLDER_NAME}"...</div>`;
+    mainView.innerHTML = `<div style="text-align:center; padding:50px; color:#666;">Scanning "${MUSIC_FOLDER_NAME}"...</div>`;
 
-    // 1. Find Root Folder
     const rootRes = await gapi.client.drive.files.list({
-      pageSize: 1,
-      fields: "files(id)",
+      pageSize: 1, fields: "files(id)",
       q: `name = '${MUSIC_FOLDER_NAME}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
     });
+    state.rootId = rootRes.result.files?.[0]?.id;
     
-    const rootId = rootRes.result.files?.[0]?.id;
-    if (!rootId) {
-      mainView.innerHTML = `<div style="text-align:center; color:red; padding:40px;">Folder "${MUSIC_FOLDER_NAME}" not found.</div>`;
-      return;
+    if(!state.rootId) {
+        mainView.innerHTML = `<div style="text-align:center; padding:50px; color:#f55;">Folder not found!</div>`;
+        return;
     }
-    state.rootFolderId = rootId;
 
-    // 2. Fetch Albums (Folders inside root)
-    mainView.innerHTML = `<div style="text-align:center; padding:40px; color:#888;">Loading Albums...</div>`;
-    
     const albumsRes = await gapi.client.drive.files.list({
-      pageSize: 1000,
-      fields: "files(id, name)",
-      q: `'${rootId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      pageSize: 1000, fields: "files(id, name)",
+      q: `'${state.rootId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
       orderBy: "name"
     });
-    
     state.albums = albumsRes.result.files || [];
 
-    // 3. Fetch Covers (Search for 'folder.jpg' globally-ish and map to parents)
-    // Optimization: We fetch all folder.jpg files created by user to avoid N+1 queries
-    // We filter them by checking if their parent is one of our known albums.
     const coversRes = await gapi.client.drive.files.list({
-      pageSize: 1000,
-      fields: "files(id, parents, thumbnailLink)",
-      q: `name = 'folder.jpg' and trashed = false`,
+      pageSize: 1000, fields: "files(parents, thumbnailLink)",
+      q: `name = 'folder.jpg' and trashed = false`
     });
-
-    // Map Covers to Album IDs
-    const potentialCovers = coversRes.result.files || [];
+    
     state.covers = {};
-    potentialCovers.forEach((file: any) => {
-        if(file.parents && file.parents.length > 0) {
-            const parentId = file.parents[0];
-            if (file.thumbnailLink) {
-                // High-Res Hack
-                state.covers[parentId] = file.thumbnailLink.replace(/=s\d+/, '=s600'); 
-            }
-        }
+    (coversRes.result.files || []).forEach((f: any) => {
+        if(f.parents?.[0]) state.covers[f.parents[0]] = f.thumbnailLink.replace(/=s\d+/, '=s600');
     });
 
-    showAlbumGrid();
-
-  } catch (err) {
-    console.error(err);
-    mainView.innerHTML = `<div style="text-align:center; color:red; padding:20px;">Sync Failed. Check Console.</div>`;
+    showAlbums();
+  } catch (e) {
+    console.error(e);
+    mainView.innerHTML = `<div style="text-align:center; padding:50px; color:#f55;">Connection Failed.<br>Try tapping RESET.</div>`;
   }
 }
 
-// --- VIEW: ALBUM GRID ---
-
-function showAlbumGrid() {
-  state.view = 'albums';
+// --- VIEWS ---
+function showAlbums() {
   backBtn.style.display = 'none';
   pageTitle.innerText = ".MP3P";
   
-  if (state.albums.length === 0) {
-      mainView.innerHTML = `<div style="text-align:center; padding:40px;">No Albums found in "${MUSIC_FOLDER_NAME}"</div>`;
+  if(state.albums.length === 0) {
+      mainView.innerHTML = `<div style="text-align:center; padding:50px; color:#666;">No Albums Found.</div>`;
       return;
   }
 
   const grid = document.createElement('div');
   grid.className = 'grid';
-
+  
   state.albums.forEach(album => {
-    const coverUrl = state.covers[album.id];
+    const cover = state.covers[album.id];
     const card = document.createElement('div');
     card.className = 'album-card';
-    
-    // Fallback if no cover
-    if (coverUrl) {
-        card.innerHTML = `
-            <img src="${coverUrl}" class="album-cover" loading="lazy">
-            <div class="album-title">${album.name}</div>
-        `;
-    } else {
-        const initials = album.name.substring(0, 2).toUpperCase();
-        card.innerHTML = `
-            <div class="album-placeholder">${initials}</div>
-            <div class="album-title">${album.name}</div>
-        `;
-    }
-
+    card.innerHTML = cover 
+        ? `<img src="${cover}" class="album-cover"><div class="album-title" style="position:absolute; bottom:0; width:100%; background:rgba(0,0,0,0.7); padding:5px; box-sizing:border-box;">${album.name}</div>`
+        : `<div class="album-placeholder">${album.name.substr(0,2)}</div><div class="album-title">${album.name}</div>`;
     card.onclick = () => openAlbum(album);
     grid.appendChild(card);
   });
-
+  
   mainView.innerHTML = '';
   mainView.appendChild(grid);
 }
 
-// --- VIEW: TRACK LIST ---
-
 async function openAlbum(album: DriveFile) {
-  state.view = 'tracks';
   state.currentAlbum = album;
-  
-  // Update Header
   backBtn.style.display = 'block';
   pageTitle.innerText = album.name;
+  mainView.innerHTML = `<div style="text-align:center; padding:50px; color:#666;">Loading Tracks...</div>`;
+
+  const res = await gapi.client.drive.files.list({
+    pageSize: 1000, fields: "files(id, name, mimeType, size)",
+    q: `'${album.id}' in parents and (mimeType contains 'audio/') and trashed = false`,
+    orderBy: "name"
+  });
   
-  mainView.innerHTML = `<div style="text-align:center; padding:40px; color:#888;">Loading Tracks...</div>`;
-
-  try {
-    // Fetch Audio Files in this Album
-    const res = await gapi.client.drive.files.list({
-      pageSize: 1000,
-      fields: "files(id, name, mimeType, size)",
-      q: `'${album.id}' in parents and (mimeType contains 'audio/') and trashed = false`,
-      orderBy: "name"
-    });
-
-    state.tracks = res.result.files || [];
-    renderTrackList();
-
-  } catch (err) {
-    console.error(err);
-    mainView.innerHTML = `<div style="text-align:center; color:red; padding:20px;">Failed to load tracks.</div>`;
-  }
+  state.tracks = res.result.files || [];
+  renderTrackList();
 }
 
 function renderTrackList() {
-    if (state.tracks.length === 0) {
-        mainView.innerHTML = `<div style="text-align:center; padding:40px;">No music files in this folder.</div>`;
-        return;
-    }
-
     const list = document.createElement('div');
     list.className = 'track-list';
-
     state.tracks.forEach((file, index) => {
-        const isLossless = file.mimeType.includes('flac') || file.mimeType.includes('wav');
-        const color = isLossless ? 'var(--veg)' : 'var(--nonveg)';
-        const sizeMB = (parseInt(file.size || '0') / 1024 / 1024).toFixed(1);
-        const ext = file.name.split('.').pop()?.toUpperCase();
-
         const row = document.createElement('div');
         row.className = 'track-row';
+        const ext = file.name.split('.').pop()?.toUpperCase();
         row.innerHTML = `
             <div class="track-info">
                 <div class="track-name">${file.name.replace(/\.[^/.]+$/, "")}</div>
-                <div class="track-meta">
-                    <span class="quality-badge" style="background:${color}; box-shadow:0 0 5px ${color}"></span>
-                    ${ext} • ${sizeMB} MB
-                </div>
+                <div class="track-meta">${ext}</div>
             </div>
-            <div style="font-size:1.2rem; color:#444;">▶</div>
+            <div style="font-size:0.8rem; color:#555;">${index+1}</div>
         `;
-
-        row.onclick = () => playTrack(index, state.tracks); // Play this specific album list
+        row.onclick = () => play(index);
         list.appendChild(row);
     });
-
     mainView.innerHTML = '';
     mainView.appendChild(list);
 }
 
-// --- PLAYER ---
+// --- PLAYER ENGINE (SECURE BLOB FETCH) ---
+async function play(index: number) {
+    state.currentIndex = index;
+    state.playlist = state.tracks;
+    const file = state.playlist[index];
+    
+    // 1. UI Feedback
+    pTitle.innerText = "Buffering...";
+    pArtist.innerText = file.name.replace(/\.[^/.]+$/, "");
+    if (state.currentAlbum && state.covers[state.currentAlbum.id]) {
+        pArt.src = state.covers[state.currentAlbum.id];
+    } else {
+        pArt.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    }
+    
+    // 2. Cleanup Old Blob
+    if (state.blobUrl) {
+        URL.revokeObjectURL(state.blobUrl);
+        state.blobUrl = null;
+    }
 
-function playTrack(index: number, contextList: DriveFile[]) {
-  // Update Playlist context
-  state.playlist = contextList;
-  state.currentIndex = index;
-  
-  const file = state.playlist[index];
-  status.innerText = file.name;
-  
-  audio.src = `https://drive.google.com/uc?export=download&id=${file.id}`;
-  audio.play();
+    // 3. SECURE FETCH (The Fix)
+    try {
+        const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+            headers: { 'Authorization': `Bearer ${state.token}` }
+        });
+        
+        if (!resp.ok) throw new Error("Playback Failed: " + resp.status);
 
-  // Media Session
-  if ('mediaSession' in navigator) {
-    const albumName = state.currentAlbum ? state.currentAlbum.name : 'Unknown Album';
-    const cover = state.currentAlbum && state.covers[state.currentAlbum.id] 
-        ? state.covers[state.currentAlbum.id] 
-        : 'https://via.placeholder.com/512';
-
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: file.name,
-      artist: albumName,
-      artwork: [{ src: cover, sizes: '512x512', type: 'image/png' }]
-    });
-
-    navigator.mediaSession.setActionHandler('nexttrack', () => {
-        if (state.currentIndex + 1 < state.playlist.length) playTrack(state.currentIndex + 1, state.playlist);
-    });
-    navigator.mediaSession.setActionHandler('previoustrack', () => {
-        if (state.currentIndex > 0) playTrack(state.currentIndex - 1, state.playlist);
-    });
-  }
+        const blob = await resp.blob();
+        state.blobUrl = URL.createObjectURL(blob);
+        
+        audio.src = state.blobUrl;
+        audio.play();
+        state.isPlaying = true;
+        updatePlayBtn();
+        pTitle.innerText = file.name.replace(/\.[^/.]+$/, "");
+        
+    } catch (err) {
+        console.error(err);
+        pTitle.innerText = "Error Playing";
+        pArtist.innerText = "Try tapping Reset";
+    }
 }
 
-// Auto Next
-audio.addEventListener('ended', () => {
-  if (state.currentIndex + 1 < state.playlist.length) {
-    playTrack(state.currentIndex + 1, state.playlist);
-  }
-});
+// --- CONTROLS ---
+function updatePlayBtn() { btnPlay.innerText = state.isPlaying ? "⏸" : "▶"; }
+btnPlay.onclick = () => { if (audio.paused) { audio.play(); state.isPlaying = true; } else { audio.pause(); state.isPlaying = false; } updatePlayBtn(); };
+btnNext.onclick = () => { if (state.currentIndex < state.playlist.length - 1) play(state.currentIndex + 1); };
+btnPrev.onclick = () => { if (state.currentIndex > 0) play(state.currentIndex - 1); };
 
-// Start
+audio.ontimeupdate = () => {
+    if (!audio.duration) return;
+    const pct = (audio.currentTime / audio.duration) * 100;
+    pBarFill.style.width = `${pct}%`;
+    pCurrent.innerText = fmtTime(audio.currentTime);
+    pDuration.innerText = fmtTime(audio.duration);
+};
+audio.onended = () => { if (state.currentIndex < state.playlist.length - 1) play(state.currentIndex + 1); };
+pBarBg.onclick = (e) => {
+    const rect = pBarBg.getBoundingClientRect();
+    const pos = (e.clientX - rect.left) / rect.width;
+    audio.currentTime = pos * audio.duration;
+};
+function fmtTime(s: number) { if (isNaN(s)) return "-:--"; const m = Math.floor(s / 60); const sec = Math.floor(s % 60); return `${m}:${sec < 10 ? '0' : ''}${sec}`; }
+
 loadScripts();
