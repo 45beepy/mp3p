@@ -68,7 +68,11 @@ button.secondary { border-color: var(--gray); color: var(--gray); margin-right: 
   margin-bottom: 10px;
   background: #111;
 }
-.album-title { font-weight: 700; font-size: 0.85rem; line-height: 1.2; text-transform: uppercase;}
+.album-title { 
+  font-weight: 700; font-size: 0.85rem; line-height: 1.2; 
+  text-transform: uppercase;
+  color: var(--yellow); /* Yellow Title */
+}
 
 /* --- TRACK LIST VIEW --- */
 .track-list { max-width: 800px; margin: 0 auto; }
@@ -78,17 +82,21 @@ button.secondary { border-color: var(--gray); color: var(--gray); margin-right: 
   border-bottom: 1px solid #222;
   cursor: pointer;
 }
-.track-row:hover .track-num { color: var(--yellow); }
+.track-row:hover { background: #111; }
+
+/* Highlight Active Song */
+.track-row.active .track-name,
+.track-row.active .track-num { color: var(--yellow); }
 
 .track-num { font-size: 1rem; font-weight: 900; color: #444; width: 30px; text-align: center; }
 .track-info { flex: 1; overflow: hidden; }
 .track-name { 
-  font-size: 1rem; font-weight: 700; 
+  font-size: 1rem; font-weight: 700; color: #fff;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; 
 }
 .track-meta { font-size: 0.7rem; color: var(--gray); margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
 
-/* --- PLAYER BAR (GENIUS STYLE) --- */
+/* --- PLAYER BAR --- */
 #player-bar {
   position: fixed; bottom: 0; left: 0; width: 100%;
   background: #000;
@@ -102,7 +110,6 @@ button.secondary { border-color: var(--gray); color: var(--gray); margin-right: 
   z-index: 100;
 }
 
-/* Cover Art Box */
 .p-art-box {
   width: 60px; height: 60px;
   background: var(--yellow);
@@ -110,41 +117,27 @@ button.secondary { border-color: var(--gray); color: var(--gray); margin-right: 
 }
 .p-art { width: 100%; height: 100%; object-fit: cover; }
 
-/* Info & Scrubber */
 .p-center { display: flex; flex-direction: column; gap: 8px; overflow: hidden; width: 100%; }
 .p-track-info { font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .p-title { font-weight: 900; color: #fff; margin-right: 10px; text-transform: uppercase; }
 .p-artist { color: var(--yellow); font-weight: 700; text-transform: uppercase; font-size: 0.75rem; }
 
-/* The Yellow Progress Bar */
-.p-scrubber { 
-  width: 100%; height: 20px; 
-  display: flex; align-items: center; cursor: pointer; 
-}
+.p-scrubber { width: 100%; height: 20px; display: flex; align-items: center; cursor: pointer; }
 .p-bar-bg { width: 100%; height: 4px; background: #333; position: relative; }
 .p-bar-fill { height: 100%; background: var(--yellow); width: 0%; position: relative; }
-/* Square Handle */
 .p-bar-fill::after {
   content: ''; position: absolute; right: -6px; top: -4px;
   width: 12px; height: 12px; background: #fff;
   border: 2px solid #000;
 }
 
-/* Controls */
 .p-controls { display: flex; gap: 15px; align-items: center; }
-.ctrl-btn { 
-  background: none; border: none; color: #fff; 
-  font-size: 1.5rem; padding: 0; cursor: pointer; 
-}
+.ctrl-btn { background: none; border: none; color: #fff; font-size: 1.5rem; padding: 0; cursor: pointer; }
 .ctrl-btn:hover { color: var(--yellow); }
 .play-btn { font-size: 2rem; color: var(--yellow); }
 
 @media (max-width: 600px) {
-  #player-bar { 
-    grid-template-columns: 1fr auto; 
-    grid-template-rows: auto auto;
-    height: auto; padding-bottom: 20px;
-  }
+  #player-bar { grid-template-columns: 1fr auto; grid-template-rows: auto auto; height: auto; padding-bottom: 20px; }
   .p-art-box { display: none; } 
   .p-center { grid-column: 1 / -1; margin-bottom: 10px; }
   .p-controls { grid-column: 1 / -1; justify-content: center; gap: 40px; }
