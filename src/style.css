@@ -68,10 +68,11 @@ button.secondary { border-color: var(--gray); color: var(--gray); margin-right: 
   margin-bottom: 10px;
   background: #111;
 }
+/* Album Title Highlight */
 .album-title { 
   font-weight: 700; font-size: 0.85rem; line-height: 1.2; 
   text-transform: uppercase;
-  color: var(--yellow); /* Yellow Title */
+  color: var(--yellow);
 }
 
 /* --- TRACK LIST VIEW --- */
@@ -84,17 +85,14 @@ button.secondary { border-color: var(--gray); color: var(--gray); margin-right: 
 }
 .track-row:hover { background: #111; }
 
-/* Highlight Active Song */
-.track-row.active .track-name,
-.track-row.active .track-num { color: var(--yellow); }
-
 .track-num { font-size: 1rem; font-weight: 900; color: #444; width: 30px; text-align: center; }
 .track-info { flex: 1; overflow: hidden; }
-.track-name { 
-  font-size: 1rem; font-weight: 700; color: #fff;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; 
-}
+.track-name { font-size: 1rem; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track-meta { font-size: 0.7rem; color: var(--gray); margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
+
+/* Active Song Highlight */
+.track-row.active .track-name, 
+.track-row.active .track-num { color: var(--yellow); }
 
 /* --- PLAYER BAR --- */
 #player-bar {

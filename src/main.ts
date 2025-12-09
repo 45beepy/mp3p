@@ -1,8 +1,10 @@
+
 import './style.css'
-import { Howl, Howler } from 'howler'
+import { Howl } from 'howler'  // Only import Howl, not Howler
 
 declare const gapi: any;
 declare const google: any;
+
 
 // --- CONFIG ---
 const API_KEY = 'AIzaSyD53qoAMqp4Wu9nHSyaBbCzUn1j0gYK5Cw';
@@ -333,36 +335,45 @@ async function play(index: number) {
         const ext = file.name.split('.').pop()?.toLowerCase() || 'mp3';
         
         // Create Howler sound instance
-        state.currentSound = new Howl({
-            src: [blobUrl],
-            format: [ext],
-            html5: true, // Use HTML5 Audio for better compatibility
-            onload: () => {
-                console.log(`Loaded: ${file.name}`);
-            },
-            onplay: () => {
-                state.isPlaying = true;
-                updatePlayBtn();
-                pTitle.innerText = file.name.replace(/\.[^/.]+$/, "").toUpperCase();
-                startProgressUpdate();
-            },
-            onpause: () => {
-                state.isPlaying = false;
-                updatePlayBtn();
-            },
-            onend: () => {
-                state.isPlaying = false;
-                updatePlayBtn();
-                if (state.currentIndex < state.playlist.length - 1) {
-                    play(state.currentIndex + 1);
-                }
-            },
-            onerror: (id, err) => {
-                console.error("Howler Error:", err);
-                pTitle.innerText = "ERROR PLAYING";
-                pArtist.innerText = "FORMAT NOT SUPPORTED";
-            }
-        });
+        
+
+state.currentSound = new Howl({
+    src: [blobUrl],
+    format: [ext],
+    html5: true,
+    onload: () => {
+        console.log(`Loaded: ${file.name}`);
+    },
+    onloaderror: (_id: number, err: any) => {  // Changed from onerror
+        console.error("Howler Load Error:", err);
+        pTitle.innerText = "ERROR LOADING";
+        pArtist.innerText = "DOWNLOAD FAILED";
+    },
+    onplayerror: (_id: number, err: any) => {  // Added playback error handler
+        console.error("Howler Play Error:", err);
+        pTitle.innerText = "ERROR PLAYING";
+        pArtist.innerText = "FORMAT NOT SUPPORTED";
+    },
+    onplay: () => {
+        state.isPlaying = true;
+        updatePlayBtn();
+        pTitle.innerText = file.name.replace(/\.[^/.]+$/, "").toUpperCase();
+        startProgressUpdate();
+    },
+    onpause: () => {
+        state.isPlaying = false;
+        updatePlayBtn();
+    },
+    onend: () => {
+        state.isPlaying = false;
+        updatePlayBtn();
+        if (state.currentIndex < state.playlist.length - 1) {
+            play(state.currentIndex + 1);
+        }
+    }
+});
+
+
 
         // Play the sound
         state.currentSound.play();
