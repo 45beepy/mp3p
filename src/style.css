@@ -1,7 +1,7 @@
 :root { 
   --bg: #000; 
   --text: #fff; 
-  --yellow: #ffff64; /* Genius Yellow */
+  --yellow: #ffff64;
   --gray: #9a9a9a;
   --border: #333;
 }
@@ -116,22 +116,23 @@ button.secondary {
   background: #111;
 }
 
-/* ALBUM TITLES: White by default */
 .album-title { 
   font-weight: 700; 
   font-size: 0.85rem; 
   line-height: 1.2; 
   text-transform: uppercase; 
-  color: #fff; /* Default White */
+  color: #fff;
   white-space: nowrap; 
   overflow: hidden; 
   text-overflow: ellipsis; 
-  display: block;
+  display: inline-block;
+  padding-bottom: 2px;
 }
 
-/* Highlight specifically for the playing album */
+/* Playing album: white text with yellow underline */
 .album-title.playing {
-  color: var(--yellow);
+  color: #fff;
+  border-bottom: 2px solid var(--yellow);
 }
 
 /* --- TRACK LIST VIEW --- */
@@ -144,7 +145,7 @@ button.secondary {
   display: flex; 
   justify-content: space-between; 
   align-items: center; 
-  padding: 16px 10px; /* Increased from 12px to 16px */
+  padding: 16px 10px;
   border-bottom: 1px solid #222;
   cursor: pointer;
   gap: 15px;
@@ -187,15 +188,13 @@ button.secondary {
   text-overflow: ellipsis; 
 }
 
-/* Tech Details (Right side) - ALIGNED */
+/* Right side: type + duration */
 .track-right {
-  display: grid;
-  grid-template-columns: auto auto;
-  gap: 8px;
+  display: flex;
+  gap: 10px;
   align-items: center;
   margin-left: auto;
   flex-shrink: 0;
-  min-width: 120px;
 }
 
 .track-tech {
@@ -214,16 +213,39 @@ button.secondary {
   min-width: 40px;
 }
 
-.tech-size { 
-  color: #555;
-  min-width: 50px;
+.track-duration {
+  color: #666;
+  min-width: 45px;
   text-align: right;
+  font-family: monospace;
+  font-size: 0.75rem;
 }
 
 /* Active Song Highlight */
 .track-row.active .track-name,
 .track-row.active .track-num { 
   color: var(--yellow); 
+}
+
+/* MOBILE VIEW - show only duration */
+@media (max-width: 600px) {
+  body {
+    padding-bottom: 90px; /* Reduced from 120px */
+  }
+
+  .tech-ext {
+    display: none;
+  }
+  
+  .track-duration {
+    display: block;
+    color: #888;
+    font-size: 0.8rem;
+  }
+  
+  .track-right {
+    min-width: auto;
+  }
 }
 
 /* --- PLAYER BAR --- */
@@ -308,7 +330,6 @@ button.secondary {
   position: relative; 
 }
 
-/* SQUARE SLIDER KNOB */
 .p-bar-fill::after {
   content: ''; 
   position: absolute; 
@@ -318,9 +339,9 @@ button.secondary {
   height: 12px; 
   background: #fff; 
   border: 2px solid #000;
-  /* No border-radius = square */
 }
 
+/* Controls */
 .p-controls { 
   display: flex; 
   gap: 15px; 
@@ -334,7 +355,7 @@ button.secondary {
   font-size: 1.5rem; 
   padding: 0; 
   cursor: pointer;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: "Helvetica Neue", Arial, sans-serif;
   line-height: 1;
   width: 40px;
   height: 40px;
@@ -348,36 +369,65 @@ button.secondary {
 }
 
 .play-btn { 
-  font-size: 2rem; 
-  color: var(--yellow);
-  width: 50px;
-  height: 50px;
+  font-size: 1.4rem;
+  color: #000;
+  background: var(--yellow);
+  border-radius: 2px;
+  width: 44px;
+  height: 44px;
+  letter-spacing: -2px;
 }
 
+/* MOBILE PLAYER BAR */
 @media (max-width: 600px) {
   #player-bar { 
-    grid-template-columns: 1fr auto; 
+    grid-template-columns: 1fr; 
     grid-template-rows: auto auto; 
     height: auto; 
-    padding-bottom: 20px; 
+    padding: 10px 15px 12px; /* Reduced padding */
+    gap: 8px; /* Reduced gap between slider and controls */
   }
   
   .p-art-box { 
-    display: none !important; /* Hide album cover on mobile */
+    display: none !important;
   } 
   
   .p-center { 
     grid-column: 1 / -1; 
-    margin-bottom: 10px; 
+    margin-bottom: 0; /* Removed extra margin */
+    gap: 6px; /* Tighter gap */
+  }
+
+  .p-track-info {
+    font-size: 0.85rem; /* Slightly smaller text */
+  }
+
+  .p-title {
+    font-size: 0.85rem;
+  }
+
+  .p-artist {
+    font-size: 0.7rem;
   }
   
   .p-controls { 
     grid-column: 1 / -1; 
     justify-content: center; 
-    gap: 40px; 
+    gap: 30px; /* Reduced from 40px */
+  }
+
+  .ctrl-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 1.3rem;
+  }
+
+  .play-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 1.3rem;
   }
   
-  /* Fix emoji rendering on mobile */
   .ctrl-btn {
     -webkit-text-size-adjust: none;
     text-rendering: optimizeLegibility;

@@ -20,10 +20,11 @@ let state = {
   albums: [] as DriveFile[],
   tracks: [] as DriveFile[],
   covers: {} as Record<string, string>,
-  
-  // Cache System
+
+  // Cache
   trackCache: {} as Record<string, DriveFile[]>,
   coverBlobCache: {} as Record<string, string>,
+  durationCache: {} as Record<string, string>,   // NEW: fileId -> "m:ss"
 
   // Playback
   playlist: [] as DriveFile[],
@@ -101,6 +102,71 @@ const pBarFill = document.getElementById('p-bar-fill')!;
 
 pArt.onerror = () => { if (pArt.src !== FALLBACK_COVER) pArt.src = FALLBACK_COVER; };
 
+// --- HELPER: PARSE TRACK NAME ---
+function parseTrackName(filename: string): { number: number; cleanName: string } {
+  const nameWithoutExt = filename.replace(/\.[^/.]+$/, "");
+  const patterns = [
+      /^(\d+)\.\s*/,     
+      /^(\d+)\s*-\s*/,   
+      /^(\d+)_\s*/,      
+      /^(\d+)\s+/        
+  ];
+  
+  for (const pattern of patterns) {
+      const match = nameWithoutExt.match(pattern);
+      if (match) {
+          const trackNumber = parseInt(match[1], 10);
+          const cleanName = nameWithoutExt.replace(pattern, '').trim();
+          return { number: trackNumber, cleanName };
+      }
+  }
+  return { number: 999, cleanName: nameWithoutExt };
+}
+
+// --- HELPER: LOAD TRACK DURATION WITH CACHE ---
+async function loadTrackDuration(fileId: string, index: number) {
+  // If cached, just inject and return
+  if (state.durationCache[fileId]) {
+      const durationEl = document.querySelector(`[data-index="${index}"]`);
+      if (durationEl) durationEl.textContent = state.durationCache[fileId];
+      return;
+  }
+
+  try {
+      const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+          headers: { 
+              'Authorization': `Bearer ${state.token}`,
+              'Range': 'bytes=0-50000'
+          }
+      });
+      
+      if (!response.ok) return;
+      
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      
+      const tempAudio = new Audio(blobUrl);
+      tempAudio.addEventListener('loadedmetadata', () => {
+          const duration = tempAudio.duration;
+          if (duration && isFinite(duration)) {
+              const minutes = Math.floor(duration / 60);
+              const seconds = Math.floor(duration % 60);
+              const formatted = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+
+              // Cache
+              state.durationCache[fileId] = formatted;
+
+              // Update UI
+              const durationEl = document.querySelector(`[data-index="${index}"]`);
+              if (durationEl) durationEl.textContent = formatted;
+          }
+          URL.revokeObjectURL(blobUrl);
+      });
+  } catch {
+      // ignore errors; keep "--:--"
+  }
+}
+
 // --- INIT ---
 function loadScripts() {
   const s = document.createElement('script');
@@ -140,34 +206,36 @@ function initGis() {
 
 // --- HELPER: PAGINATION ---
 async function fetchAll(query: string, fields: string) {
-    let files: any[] = [];
-    let pageToken = null;
-    do {
-        const res: any = await gapi.client.drive.files.list({
-            q: query, fields: `nextPageToken, files(${fields})`, pageSize: 1000, pageToken: pageToken
-        });
-        if (res.result.files) files = files.concat(res.result.files);
-        pageToken = res.result.nextPageToken;
-    } while (pageToken);
-    return files;
+  let files: any[] = [];
+  let pageToken = null;
+  do {
+      const res: any = await gapi.client.drive.files.list({
+          q: query, fields: `nextPageToken, files(${fields})`, pageSize: 1000, pageToken: pageToken
+      });
+      if (res.result.files) files = files.concat(res.result.files);
+      pageToken = res.result.nextPageToken;
+  } while (pageToken);
+  return files;
 }
 
 // --- HELPER: SECURE IMAGE ---
 async function loadSecureImage(imgEl: HTMLImageElement, fileId: string) {
-    if (state.coverBlobCache[fileId]) {
-        imgEl.src = state.coverBlobCache[fileId];
-        return;
-    }
-    try {
-        const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-            headers: { 'Authorization': `Bearer ${state.token}` }
-        });
-        if (!resp.ok) throw new Error();
-        const blob = await resp.blob();
-        const url = URL.createObjectURL(blob);
-        state.coverBlobCache[fileId] = url;
-        imgEl.src = url;
-    } catch (e) { imgEl.src = FALLBACK_COVER; }
+  if (state.coverBlobCache[fileId]) {
+      imgEl.src = state.coverBlobCache[fileId];
+      return;
+  }
+  try {
+      const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+          headers: { 'Authorization': `Bearer ${state.token}` }
+      });
+      if (!resp.ok) throw new Error();
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      state.coverBlobCache[fileId] = url;
+      imgEl.src = url;
+  } catch {
+      imgEl.src = FALLBACK_COVER;
+  }
 }
 
 // --- SYNC ---
@@ -176,6 +244,7 @@ async function syncLibrary() {
   gapi.client.setToken({ access_token: state.token });
   state.trackCache = {}; 
   state.coverBlobCache = {}; 
+  // Keep durationCache so durations persist across syncs
 
   try {
     mainView.innerHTML = `<div style="text-align:center; padding:50px; color:#666; font-weight:700;">SCANNING "${MUSIC_FOLDER_NAME}"...</div>`;
@@ -191,15 +260,20 @@ async function syncLibrary() {
         return;
     }
 
-    state.albums = await fetchAll(`'${state.rootId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`, "id, name");
-    const allCovers = await fetchAll(`name = 'folder.jpg' and trashed = false`, "id, parents");
+    state.albums = await fetchAll(
+      `'${state.rootId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      "id, name"
+    );
+    const allCovers = await fetchAll(
+      `name = 'folder.jpg' and trashed = false`,
+      "id, parents"
+    );
     
     state.covers = {};
     allCovers.forEach((f: any) => { if(f.parents?.[0]) state.covers[f.parents[0]] = f.id; });
 
     showAlbums();
-  } catch (e: any) {
-    console.error(e);
+  } catch {
     mainView.innerHTML = `<div style="text-align:center; padding:50px; color:var(--yellow);">CONNECTION FAILED<br>TRY RESET</div>`;
   }
 }
@@ -208,7 +282,6 @@ async function syncLibrary() {
 function showAlbums() {
   backBtn.style.display = 'none';
   mainHeader.classList.remove('album-mode');
-  
   pageTitle.innerText = "MP3P";
   
   if(state.albums.length === 0) {
@@ -224,7 +297,6 @@ function showAlbums() {
     const card = document.createElement('div');
     card.className = 'album-card';
     
-    // HIGHLIGHT LOGIC: Add 'playing' class if this is the active album
     const titleClass = (album.id === state.playingAlbumId) ? 'album-title playing' : 'album-title';
     
     card.innerHTML = `<img class="album-cover" src="${EMPTY_COVER}"><div class="${titleClass}">${album.name}</div>`;
@@ -244,7 +316,6 @@ async function openAlbum(album: DriveFile) {
   state.currentAlbum = album;
   backBtn.style.display = 'block';
   mainHeader.classList.add('album-mode');
-  
   pageTitle.innerText = album.name.toUpperCase();
   
   if (state.trackCache[album.id]) {
@@ -256,172 +327,183 @@ async function openAlbum(album: DriveFile) {
   mainView.innerHTML = `<div style="text-align:center; padding:50px; color:#666; font-weight:700;">LOADING TRACKS...</div>`;
 
   try {
-      state.tracks = await fetchAll(`'${album.id}' in parents and (mimeType contains 'audio/') and trashed = false`, "id, name, mimeType, size");
-      state.tracks.sort((a, b) => a.name.localeCompare(b.name));
+      state.tracks = await fetchAll(
+        `'${album.id}' in parents and (mimeType contains 'audio/') and trashed = false`,
+        "id, name, mimeType, size"
+      );
+      
+      state.tracks.sort((a, b) => {
+          const aInfo = parseTrackName(a.name);
+          const bInfo = parseTrackName(b.name);
+          return aInfo.number - bInfo.number;
+      });
+      
       state.trackCache[album.id] = state.tracks;
       renderTrackList();
-  } catch (err) { mainView.innerHTML = "ERROR LOADING TRACKS"; }
+  } catch {
+      mainView.innerHTML = "ERROR LOADING TRACKS";
+  }
 }
 
 function renderTrackList() {
-    const list = document.createElement('div');
-    list.className = 'track-list';
-    
-    state.tracks.forEach((file, index) => {
-        const row = document.createElement('div');
-        row.className = 'track-row';
-        const isActive = (file.id === state.playingFileId);
-        if (isActive) row.classList.add('active');
+  const list = document.createElement('div');
+  list.className = 'track-list';
+  
+  state.tracks.forEach((file, index) => {
+      const row = document.createElement('div');
+      row.className = 'track-row';
+      const isActive = (file.id === state.playingFileId);
+      if (isActive) row.classList.add('active');
 
-        const ext = file.name.split('.').pop()?.toUpperCase() || 'AUDIO';
-        const sizeMB = file.size ? (parseInt(file.size) / 1024 / 1024).toFixed(1) + 'MB' : '';
+      const ext = file.name.split('.').pop()?.toUpperCase() || 'AUDIO';
+      const { cleanName } = parseTrackName(file.name);
 
-        row.innerHTML = `
-            <div class="track-left">
-                <div class="track-num">${index + 1}</div>
-                <div class="track-info">
-                    <div class="track-name">${file.name.replace(/\.[^/.]+$/, "")}</div>
-                </div>
-            </div>
-            <div class="track-right">
-                <span class="track-tech tech-ext">${ext}</span>
-                <span class="track-tech tech-size">${sizeMB}</span>
-            </div>
-        `;
-        row.onclick = () => play(index);
-        list.appendChild(row);
-    });
-    mainView.innerHTML = '';
-    mainView.appendChild(list);
+      const cachedDuration = state.durationCache[file.id] || '--:--';
+
+      row.innerHTML = `
+          <div class="track-left">
+              <div class="track-num">${index + 1}</div>
+              <div class="track-info">
+                  <div class="track-name">${cleanName}</div>
+              </div>
+          </div>
+          <div class="track-right">
+              <span class="track-tech tech-ext">${ext}</span>
+              <span class="track-tech track-duration" data-index="${index}">${cachedDuration}</span>
+          </div>
+      `;
+      row.onclick = () => play(index);
+      list.appendChild(row);
+
+      // Only fetch duration if not cached
+      if (!state.durationCache[file.id]) {
+          loadTrackDuration(file.id, index);
+      }
+  });
+  mainView.innerHTML = '';
+  mainView.appendChild(list);
 }
 
-// --- PLAYER ENGINE (BLOB METHOD FOR ALL FORMATS) ---
+// --- PLAYER ENGINE ---
 async function play(index: number) {
-    state.currentIndex = index;
-    state.playlist = state.tracks;
-    const file = state.playlist[index];
-    state.playingFileId = file.id; 
-    
-    // Save Playing Album ID for Home Screen Highlight
-    if (state.currentAlbum) {
-        state.playingAlbumId = state.currentAlbum.id;
-    }
+  state.currentIndex = index;
+  state.playlist = state.tracks;
+  const file = state.playlist[index];
+  state.playingFileId = file.id; 
+  
+  if (state.currentAlbum) {
+      state.playingAlbumId = state.currentAlbum.id;
+  }
 
-    renderTrackList();
+  renderTrackList();
 
-    pTitle.innerText = "LOADING...";
-    pArtist.innerText = state.currentAlbum ? state.currentAlbum.name.toUpperCase() : "UNKNOWN"; 
-    
-    const coverId = state.currentAlbum && state.covers[state.currentAlbum.id];
-    if (coverId) {
-        loadSecureImage(pArt, coverId);
-    } else {
-        pArt.src = FALLBACK_COVER;
-    }
+  pTitle.innerText = "LOADING...";
+  pArtist.innerText = state.currentAlbum ? state.currentAlbum.name.toUpperCase() : "UNKNOWN"; 
+  
+  const coverId = state.currentAlbum && state.covers[state.currentAlbum.id];
+  if (coverId) loadSecureImage(pArt, coverId); else pArt.src = FALLBACK_COVER;
 
-    // Clean up previous blob URL
-    if (state.blobUrl) { 
-        URL.revokeObjectURL(state.blobUrl); 
-        state.blobUrl = null; 
-    }
+  if (state.blobUrl) { 
+      URL.revokeObjectURL(state.blobUrl); 
+      state.blobUrl = null; 
+  }
 
-    try {
-        // Fetch audio file as blob (works for all formats including FLAC)
-        const response = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
-            headers: { 
-                'Authorization': `Bearer ${state.token}`,
-                'Accept': 'audio/*'
-            }
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        // Create blob with proper MIME type
-        const blob = await response.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        state.blobUrl = blobUrl;
-        
-        audio.src = blobUrl;
-        audio.load(); // Force reload
-        
-        await audio.play();
-        
-        state.isPlaying = true;
-        updatePlayBtn();
-        pTitle.innerText = file.name.replace(/\.[^/.]+$/, "").toUpperCase();
-        
-    } catch (err: any) {
-        console.error("Playback Error:", err);
-        pTitle.innerText = "ERROR PLAYING";
-        
-        if (err.message?.includes('403') || err.message?.includes('401')) {
-            pArtist.innerText = "TOKEN EXPIRED - RESET";
-        } else if (err.name === 'NotSupportedError') {
-            pArtist.innerText = "FORMAT NOT SUPPORTED";
-        } else {
-            pArtist.innerText = "PLAYBACK FAILED";
-        }
-    }
+  try {
+      const response = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+          headers: { 
+              'Authorization': `Bearer ${state.token}`,
+              'Accept': 'audio/*'
+          }
+      });
+      
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      state.blobUrl = blobUrl;
+      
+      audio.src = blobUrl;
+      audio.load();
+      await audio.play();
+      
+      state.isPlaying = true;
+      updatePlayBtn();
+      
+      const { cleanName } = parseTrackName(file.name);
+      pTitle.innerText = cleanName.toUpperCase();
+      
+  } catch (err: any) {
+      console.error("Playback Error:", err);
+      pTitle.innerText = "ERROR PLAYING";
+      
+      if (err.message?.includes('403') || err.message?.includes('401')) {
+          pArtist.innerText = "TOKEN EXPIRED - RESET";
+      } else if (err.name === 'NotSupportedError') {
+          pArtist.innerText = "FORMAT NOT SUPPORTED";
+      } else {
+          pArtist.innerText = "PLAYBACK FAILED";
+      }
+  }
 
-    // Media Session Support
-    if ('mediaSession' in navigator) {
-        navigator.mediaSession.metadata = new MediaMetadata({
-            title: file.name.replace(/\.[^/.]+$/, ""),
-            artist: state.currentAlbum?.name || 'Unknown',
-            artwork: [{ src: pArt.src, sizes: '512x512', type: 'image/jpeg' }]
-        });
-        
-        navigator.mediaSession.setActionHandler('play', () => { audio.play(); state.isPlaying = true; updatePlayBtn(); });
-        navigator.mediaSession.setActionHandler('pause', () => { audio.pause(); state.isPlaying = false; updatePlayBtn(); });
-        navigator.mediaSession.setActionHandler('previoustrack', () => { if (state.currentIndex > 0) play(state.currentIndex - 1); });
-        navigator.mediaSession.setActionHandler('nexttrack', () => { if (state.currentIndex < state.playlist.length - 1) play(state.currentIndex + 1); });
-    }
+  if ('mediaSession' in navigator) {
+      const { cleanName } = parseTrackName(file.name);
+      navigator.mediaSession.metadata = new MediaMetadata({
+          title: cleanName,
+          artist: state.currentAlbum?.name || 'Unknown',
+          artwork: [{ src: pArt.src, sizes: '512x512', type: 'image/jpeg' }]
+      });
+      
+      navigator.mediaSession.setActionHandler('play', () => { audio.play(); state.isPlaying = true; updatePlayBtn(); });
+      navigator.mediaSession.setActionHandler('pause', () => { audio.pause(); state.isPlaying = false; updatePlayBtn(); });
+      navigator.mediaSession.setActionHandler('previoustrack', () => { if (state.currentIndex > 0) play(state.currentIndex - 1); });
+      navigator.mediaSession.setActionHandler('nexttrack', () => { if (state.currentIndex < state.playlist.length - 1) play(state.currentIndex + 1); });
+  }
 }
 
 // --- CONTROLS ---
-function updatePlayBtn() { btnPlay.innerText = state.isPlaying ? "⏸" : "▶"; }
+function updatePlayBtn() {
+  btnPlay.textContent = state.isPlaying ? '||' : '▶';
+}
 
 btnPlay.onclick = () => { 
-    if (audio.paused) { 
-        audio.play(); 
-        state.isPlaying = true; 
-    } else { 
-        audio.pause(); 
-        state.isPlaying = false; 
-    } 
-    updatePlayBtn(); 
+  if (audio.paused) { 
+      audio.play(); 
+      state.isPlaying = true; 
+  } else { 
+      audio.pause(); 
+      state.isPlaying = false; 
+  } 
+  updatePlayBtn(); 
 };
 
 btnNext.onclick = () => { 
-    if (state.currentIndex < state.playlist.length - 1) play(state.currentIndex + 1); 
+  if (state.currentIndex < state.playlist.length - 1) play(state.currentIndex + 1); 
 };
 
 btnPrev.onclick = () => { 
-    if (state.currentIndex > 0) play(state.currentIndex - 1); 
+  if (state.currentIndex > 0) play(state.currentIndex - 1); 
 };
 
 audio.ontimeupdate = () => {
-    if (!audio.duration) return;
-    const pct = (audio.currentTime / audio.duration) * 100;
-    pBarFill.style.width = `${pct}%`;
+  if (!audio.duration) return;
+  const pct = (audio.currentTime / audio.duration) * 100;
+  pBarFill.style.width = `${pct}%`;
 };
 
 audio.onended = () => { 
-    if (state.currentIndex < state.playlist.length - 1) play(state.currentIndex + 1); 
+  if (state.currentIndex < state.playlist.length - 1) play(state.currentIndex + 1); 
 };
 
 audio.onerror = (e) => {
-    console.error('Audio element error:', e);
-    pTitle.innerText = "PLAYBACK ERROR";
-    pArtist.innerText = "CHECK FORMAT SUPPORT";
+  console.error('Audio element error:', e);
+  pTitle.innerText = "PLAYBACK ERROR";
+  pArtist.innerText = "CHECK FORMAT SUPPORT";
 };
 
 pScrubber.onclick = (e) => {
-    const rect = pBarBg.getBoundingClientRect();
-    const pos = (e.clientX - rect.left) / rect.width;
-    audio.currentTime = pos * audio.duration;
+  const rect = pBarBg.getBoundingClientRect();
+  const pos = (e.clientX - rect.left) / rect.width;
+  audio.currentTime = pos * audio.duration;
 };
 
 loadScripts();
