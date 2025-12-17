@@ -17,6 +17,8 @@ interface DriveFile { id: string; name: string; mimeType: string; size?: string;
 interface AlbumColors {
   font: string;
   line: string;
+  titleBg: string;
+  titleText: string;
 }
 
 let state = {
@@ -30,7 +32,7 @@ let state = {
   trackCache: {} as Record<string, DriveFile[]>,
   coverBlobCache: {} as Record<string, string>,
   durationCache: {} as Record<string, string>,
-  albumColors: {} as Record<string, AlbumColors>,  // NEW: cache for album colors
+  albumColors: {} as Record<string, AlbumColors>,
 
   // Playback
   playlist: [] as DriveFile[],
@@ -207,11 +209,15 @@ async function loadAlbumColors(albumId: string): Promise<AlbumColors | null> {
     // Parse the colors
     const fontMatch = text.match(/font:\s*([#\w]+)/i);
     const lineMatch = text.match(/line:\s*([#\w]+)/i);
+    const titleBgMatch = text.match(/titleBg:\s*([#\w]+)/i);
+    const titleTextMatch = text.match(/titleText:\s*([#\w]+)/i);
 
-    if (fontMatch && lineMatch) {
+    if (fontMatch && lineMatch && titleBgMatch && titleTextMatch) {
       const colors: AlbumColors = {
         font: fontMatch[1].trim(),
-        line: lineMatch[1].trim()
+        line: lineMatch[1].trim(),
+        titleBg: titleBgMatch[1].trim(),
+        titleText: titleTextMatch[1].trim()
       };
       
       // Cache it
@@ -226,7 +232,7 @@ async function loadAlbumColors(albumId: string): Promise<AlbumColors | null> {
   }
 }
 
-// --- HELPER: APPLY ALBUM COLORS ---
+// --- HELPER: APPLY ALBUM COLORS TO GRID ---
 function applyAlbumColors(albumId: string) {
   const colors = state.albumColors[albumId];
   
@@ -241,6 +247,44 @@ function applyAlbumColors(albumId: string) {
       htmlEl.style.borderBottomColor = '';
     }
   });
+}
+
+// --- HELPER: APPLY ALBUM TITLE COLORS ---
+function applyAlbumTitleColors(albumId: string) {
+  const colors = state.albumColors[albumId];
+  
+  if (colors) {
+    pageTitle.style.backgroundColor = colors.titleBg;
+    pageTitle.style.color = colors.titleText;
+  } else {
+    pageTitle.style.backgroundColor = '';
+    pageTitle.style.color = '';
+  }
+}
+
+// --- HELPER: APPLY PLAY BUTTON COLORS ---
+function applyPlayButtonColors(albumId: string) {
+  const colors = state.albumColors[albumId];
+  
+  if (colors) {
+    btnPlay.style.backgroundColor = colors.font;
+    btnPlay.style.color = colors.titleText;
+  } else {
+    btnPlay.style.backgroundColor = '';
+    btnPlay.style.color = '';
+  }
+}
+
+// --- HELPER: RESET TITLE COLORS ---
+function resetTitleColors() {
+  pageTitle.style.backgroundColor = '';
+  pageTitle.style.color = '';
+}
+
+// --- HELPER: RESET PLAY BUTTON COLORS ---
+function resetPlayButtonColors() {
+  btnPlay.style.backgroundColor = '';
+  btnPlay.style.color = '';
 }
 
 // --- HELPER: LOAD TRACK DURATION WITH CACHE ---
@@ -316,6 +360,7 @@ function initGis() {
     searchContainer.style.display = 'none';
     state.searchQuery = '';
     searchInput.value = '';
+    resetTitleColors();
     showAlbums();
   };
 }
@@ -451,6 +496,14 @@ async function openAlbum(album: DriveFile) {
   // Hide search bar when opening album
   searchContainer.style.display = 'none';
   
+  // Load and apply colors for this album
+  const colors = await loadAlbumColors(album.id);
+  if (colors) {
+    applyAlbumTitleColors(album.id);
+  } else {
+    resetTitleColors();
+  }
+  
   if (state.trackCache[album.id]) {
       state.tracks = state.trackCache[album.id];
       renderTrackList();
@@ -533,13 +586,20 @@ async function play(index: number, retryCount = 0) {
       state.playingAlbumId = state.currentAlbum.id;
       
       // Load custom colors for this album
-      loadAlbumColors(state.currentAlbum.id).then(() => {
-        // Refresh grid view if we're on it to apply colors
-        const isGridView = backBtn.style.display === 'none';
-        if (isGridView) {
-          showAlbums();
-        }
-      });
+      const colors = await loadAlbumColors(state.currentAlbum.id);
+      
+      // Apply colors to play button
+      if (colors) {
+        applyPlayButtonColors(state.currentAlbum.id);
+      } else {
+        resetPlayButtonColors();
+      }
+      
+      // Refresh grid view if we're on it to apply colors
+      const isGridView = backBtn.style.display === 'none';
+      if (isGridView) {
+        showAlbums();
+      }
   }
 
   renderTrackList();
