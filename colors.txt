@@ -1,2 +1,5 @@
-font: #01823E
-line: #ffffff
+font: #ffffff
+line: #FE771C
+titleBg: #FE771C
+titleText: #ffffff
+logo: title-logo.png

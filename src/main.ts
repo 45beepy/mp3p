@@ -19,6 +19,7 @@ interface AlbumColors {
   line: string;
   titleBg: string;
   titleText: string;
+  logo?: string;
 }
 
 let state = {
@@ -33,6 +34,7 @@ let state = {
   coverBlobCache: {} as Record<string, string>,
   durationCache: {} as Record<string, string>,
   albumColors: {} as Record<string, AlbumColors>,
+  albumLogos: {} as Record<string, string>,
 
   // Playback
   playlist: [] as DriveFile[],
@@ -178,13 +180,11 @@ function parseTrackName(filename: string): { number: number; cleanName: string }
 
 // --- HELPER: LOAD ALBUM COLORS ---
 async function loadAlbumColors(albumId: string): Promise<AlbumColors | null> {
-  // Check cache first
   if (state.albumColors[albumId]) {
     return state.albumColors[albumId];
   }
 
   try {
-    // Search for colors.txt in album folder
     const res: any = await gapi.client.drive.files.list({
       q: `name = 'colors.txt' and '${albumId}' in parents and trashed = false`,
       fields: "files(id)",
@@ -197,7 +197,6 @@ async function loadAlbumColors(albumId: string): Promise<AlbumColors | null> {
 
     const fileId = res.result.files[0].id;
 
-    // Fetch the file content
     const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
       headers: { 'Authorization': `Bearer ${state.token}` }
     });
@@ -206,22 +205,27 @@ async function loadAlbumColors(albumId: string): Promise<AlbumColors | null> {
 
     const text = await response.text();
     
-    // Parse the colors
     const fontMatch = text.match(/font:\s*([#\w]+)/i);
     const lineMatch = text.match(/line:\s*([#\w]+)/i);
     const titleBgMatch = text.match(/titleBg:\s*([#\w]+)/i);
     const titleTextMatch = text.match(/titleText:\s*([#\w]+)/i);
+    const logoMatch = text.match(/logo:\s*([^\r\n]+)/i);
 
     if (fontMatch && lineMatch && titleBgMatch && titleTextMatch) {
       const colors: AlbumColors = {
         font: fontMatch[1].trim(),
         line: lineMatch[1].trim(),
         titleBg: titleBgMatch[1].trim(),
-        titleText: titleTextMatch[1].trim()
+        titleText: titleTextMatch[1].trim(),
+        logo: logoMatch ? logoMatch[1].trim() : undefined
       };
       
-      // Cache it
       state.albumColors[albumId] = colors;
+      
+      if (colors.logo) {
+        await loadAlbumLogo(albumId, colors.logo);
+      }
+      
       return colors;
     }
 
@@ -232,11 +236,106 @@ async function loadAlbumColors(albumId: string): Promise<AlbumColors | null> {
   }
 }
 
+// --- HELPER: LOAD ALBUM LOGO ---
+async function loadAlbumLogo(albumId: string, logoFilename: string): Promise<void> {
+  try {
+    const res: any = await gapi.client.drive.files.list({
+      q: `name = '${logoFilename}' and '${albumId}' in parents and trashed = false`,
+      fields: "files(id)",
+      pageSize: 1
+    });
+
+    if (!res.result.files || res.result.files.length === 0) {
+      return;
+    }
+
+    const fileId = res.result.files[0].id;
+
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+      headers: { 'Authorization': `Bearer ${state.token}` }
+    });
+
+    if (!response.ok) return;
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    state.albumLogos[albumId] = url;
+  } catch (err) {
+    console.error('Error loading album logo:', err);
+  }
+}
+
+// --- HELPER: LOAD LYRICS ---
+async function loadLyrics(trackName: string): Promise<string | null> {
+  if (!state.currentAlbum) {
+    console.log('No current album');
+    return null;
+  }
+  
+  try {
+    // Remove extension and add .txt
+    const lyricsFileName = trackName.replace(/\.[^/.]+$/, "") + '.txt';
+    console.log('Looking for lyrics file:', lyricsFileName);
+    console.log('In album:', state.currentAlbum.name, 'ID:', state.currentAlbum.id);
+    
+    const res: any = await gapi.client.drive.files.list({
+      q: `name = '${lyricsFileName}' and '${state.currentAlbum.id}' in parents and trashed = false`,
+      fields: "files(id, name)",
+      pageSize: 1
+    });
+
+    console.log('Lyrics search result:', res.result.files);
+
+    if (!res.result.files || res.result.files.length === 0) {
+      console.log('No lyrics file found for:', lyricsFileName);
+      return null;
+    }
+
+    const fileId = res.result.files[0].id;
+    console.log('Found lyrics file with ID:', fileId);
+
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+      headers: { 'Authorization': `Bearer ${state.token}` }
+    });
+
+    if (!response.ok) {
+      console.error('Failed to fetch lyrics:', response.status);
+      return null;
+    }
+
+    const text = await response.text();
+    console.log('Lyrics loaded, length:', text.length);
+    return text;
+  } catch (err) {
+    console.error('Error loading lyrics:', err);
+    return null;
+  }
+}
+
+// --- HELPER: UPDATE LYRICS PANEL ---
+function updateLyricsPanel(lyrics: string | null) {
+  const lyricsContent = document.querySelector('.lyrics-content');
+  if (!lyricsContent) return;
+  
+  if (lyrics) {
+    const lines = lyrics.split('\n');
+    const htmlContent = lines.map(line => {
+      const trimmed = line.trim();
+      if (trimmed === '') {
+        return '<p><br></p>';
+      }
+      return `<p>${trimmed}</p>`;
+    }).join('');
+    lyricsContent.innerHTML = htmlContent;
+  } else {
+    lyricsContent.innerHTML = '<p class="lyrics-placeholder">No lyrics available for this track</p>';
+  }
+}
+
 // --- HELPER: APPLY ALBUM COLORS TO GRID ---
 function applyAlbumColors(albumId: string) {
   const colors = state.albumColors[albumId];
   
-  // Find all playing album titles in the grid
   document.querySelectorAll('.album-title.playing').forEach(el => {
     const htmlEl = el as HTMLElement;
     if (colors) {
@@ -252,13 +351,25 @@ function applyAlbumColors(albumId: string) {
 // --- HELPER: APPLY ALBUM TITLE COLORS ---
 function applyAlbumTitleColors(albumId: string) {
   const colors = state.albumColors[albumId];
+  const logoUrl = state.albumLogos[albumId];
   
   if (colors) {
     pageTitle.style.backgroundColor = colors.titleBg;
     pageTitle.style.color = colors.titleText;
+    
+    if (logoUrl) {
+      pageTitle.classList.add('has-logo');
+      pageTitle.style.backgroundImage = `url("${logoUrl}")`;
+      pageTitle.setAttribute('aria-label', pageTitle.textContent || '');
+    } else {
+      pageTitle.classList.remove('has-logo');
+      pageTitle.style.backgroundImage = '';
+    }
   } else {
+    pageTitle.classList.remove('has-logo');
     pageTitle.style.backgroundColor = '';
     pageTitle.style.color = '';
+    pageTitle.style.backgroundImage = '';
   }
 }
 
@@ -277,8 +388,10 @@ function applyPlayButtonColors(albumId: string) {
 
 // --- HELPER: RESET TITLE COLORS ---
 function resetTitleColors() {
+  pageTitle.classList.remove('has-logo');
   pageTitle.style.backgroundColor = '';
   pageTitle.style.color = '';
+  pageTitle.style.backgroundImage = '';
 }
 
 // --- HELPER: RESET PLAY BUTTON COLORS ---
@@ -449,7 +562,6 @@ function showAlbums() {
       return;
   }
 
-  // Filter albums based on search query
   const filteredAlbums = state.searchQuery
     ? state.albums.filter(album => album.name.toLowerCase().includes(state.searchQuery))
     : state.albums;
@@ -481,7 +593,6 @@ function showAlbums() {
   mainView.innerHTML = '';
   mainView.appendChild(grid);
 
-  // Apply custom colors if playing album is visible
   if (state.playingAlbumId) {
     applyAlbumColors(state.playingAlbumId);
   }
@@ -493,10 +604,8 @@ async function openAlbum(album: DriveFile) {
   mainHeader.classList.add('album-mode');
   pageTitle.innerText = album.name.toUpperCase();
   
-  // Hide search bar when opening album
   searchContainer.style.display = 'none';
   
-  // Load and apply colors for this album
   const colors = await loadAlbumColors(album.id);
   if (colors) {
     applyAlbumTitleColors(album.id);
@@ -532,10 +641,41 @@ async function openAlbum(album: DriveFile) {
 }
 
 function renderTrackList() {
-  const list = document.createElement('div');
-  list.className = 'track-list';
+  const isDesktop = window.innerWidth > 768;
   
-  state.tracks.forEach((file, index) => {
+  if (isDesktop) {
+    const container = document.createElement('div');
+    container.className = 'album-view-desktop';
+    
+    // Left section
+    const leftSection = document.createElement('div');
+    leftSection.className = 'album-left';
+    
+    const artBox = document.createElement('div');
+    artBox.className = 'album-art-large';
+    const artImg = document.createElement('img');
+    artImg.src = EMPTY_COVER;
+    const coverId = state.currentAlbum && state.covers[state.currentAlbum.id];
+    if (coverId) loadSecureImage(artImg, coverId); else artImg.src = FALLBACK_COVER;
+    artBox.appendChild(artImg);
+    
+    const infoBox = document.createElement('div');
+    infoBox.className = 'album-info';
+    infoBox.innerHTML = `
+      <h2>${state.currentAlbum?.name || 'Unknown Album'}</h2>
+      <p class="track-count">${state.tracks.length} tracks</p>
+    `;
+    
+    leftSection.appendChild(artBox);
+    leftSection.appendChild(infoBox);
+    
+    // Middle section
+    const middleSection = document.createElement('div');
+    middleSection.className = 'album-middle';
+    const list = document.createElement('div');
+    list.className = 'track-list-compact';
+    
+    state.tracks.forEach((file, index) => {
       const row = document.createElement('div');
       row.className = 'track-row';
       const isActive = (file.id === state.playingFileId);
@@ -543,7 +683,6 @@ function renderTrackList() {
 
       const ext = file.name.split('.').pop()?.toUpperCase() || 'AUDIO';
       const { cleanName } = parseTrackName(file.name);
-
       const cachedDuration = state.durationCache[file.id] || '--:--';
 
       row.innerHTML = `
@@ -564,9 +703,65 @@ function renderTrackList() {
       if (!state.durationCache[file.id]) {
           loadTrackDuration(file.id, index);
       }
-  });
-  mainView.innerHTML = '';
-  mainView.appendChild(list);
+    });
+    
+    middleSection.appendChild(list);
+    
+    // Right section
+    const rightSection = document.createElement('div');
+    rightSection.className = 'album-right';
+    rightSection.id = 'lyrics-panel';
+    rightSection.innerHTML = `
+      <div class="lyrics-header">LYRICS</div>
+      <div class="lyrics-content">
+        <p class="lyrics-placeholder">Select a track to view lyrics</p>
+      </div>
+    `;
+    
+    container.appendChild(leftSection);
+    container.appendChild(middleSection);
+    container.appendChild(rightSection);
+    
+    mainView.innerHTML = '';
+    mainView.appendChild(container);
+  } else {
+    // Mobile layout
+    const list = document.createElement('div');
+    list.className = 'track-list';
+    
+    state.tracks.forEach((file, index) => {
+      const row = document.createElement('div');
+      row.className = 'track-row';
+      const isActive = (file.id === state.playingFileId);
+      if (isActive) row.classList.add('active');
+
+      const ext = file.name.split('.').pop()?.toUpperCase() || 'AUDIO';
+      const { cleanName } = parseTrackName(file.name);
+      const cachedDuration = state.durationCache[file.id] || '--:--';
+
+      row.innerHTML = `
+          <div class="track-left">
+              <div class="track-num">${index + 1}</div>
+              <div class="track-info">
+                  <div class="track-name">${cleanName}</div>
+              </div>
+          </div>
+          <div class="track-right">
+              <span class="track-tech tech-ext">${ext}</span>
+              <span class="track-tech track-duration" data-index="${index}">${cachedDuration}</span>
+          </div>
+      `;
+      row.onclick = () => play(index);
+      list.appendChild(row);
+
+      if (!state.durationCache[file.id]) {
+          loadTrackDuration(file.id, index);
+      }
+    });
+    
+    mainView.innerHTML = '';
+    mainView.appendChild(list);
+  }
 }
 
 // --- PLAYER ENGINE WITH RETRY ---
@@ -585,17 +780,14 @@ async function play(index: number, retryCount = 0) {
   if (state.currentAlbum) {
       state.playingAlbumId = state.currentAlbum.id;
       
-      // Load custom colors for this album
       const colors = await loadAlbumColors(state.currentAlbum.id);
       
-      // Apply colors to play button
       if (colors) {
         applyPlayButtonColors(state.currentAlbum.id);
       } else {
         resetPlayButtonColors();
       }
       
-      // Refresh grid view if we're on it to apply colors
       const isGridView = backBtn.style.display === 'none';
       if (isGridView) {
         showAlbums();
@@ -646,6 +838,22 @@ async function play(index: number, retryCount = 0) {
       
       const { cleanName } = parseTrackName(file.name);
       pTitle.innerText = cleanName.toUpperCase();
+      
+      // Load lyrics for desktop (async, non-blocking)
+      if (window.innerWidth > 768) {
+        const lyricsContent = document.querySelector('.lyrics-content');
+        if (lyricsContent) {
+          lyricsContent.innerHTML = '<p class="lyrics-placeholder">Loading lyrics...</p>';
+          
+          // Load lyrics in background
+          loadLyrics(file.name).then(lyrics => {
+            updateLyricsPanel(lyrics);
+          }).catch(err => {
+            console.error('Failed to load lyrics:', err);
+            updateLyricsPanel(null);
+          });
+        }
+      }
       
   } catch (err: any) {
       console.error("Playback Error:", err);
