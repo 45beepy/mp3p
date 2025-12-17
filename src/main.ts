@@ -22,6 +22,11 @@ interface AlbumColors {
   logo?: string;
 }
 
+interface LyricLine {
+  time: number;
+  text: string;
+}
+
 let state = {
   token: sessionStorage.getItem('g_token'),
   rootId: null as string | null,
@@ -36,6 +41,7 @@ let state = {
   albumColors: {} as Record<string, AlbumColors>,
   albumLogos: {} as Record<string, string>,
   lyricsCache: {} as Record<string, string>,
+  syncedLyricsCache: {} as Record<string, LyricLine[]>,
 
   // Playback
   playlist: [] as DriveFile[],
@@ -46,6 +52,10 @@ let state = {
   isPlaying: false,
   blobUrl: null as string | null,
   isLoadingTrack: false,
+
+  // Lyrics sync
+  currentLyrics: [] as LyricLine[],
+  currentLyricIndex: -1,
 
   // Search
   searchQuery: ''
@@ -179,6 +189,30 @@ function parseTrackName(filename: string): { number: number; cleanName: string }
   return { number: 999, cleanName: nameWithoutExt };
 }
 
+// --- HELPER: PARSE SYNCED LYRICS ---
+function parseSyncedLyrics(syncedText: string): LyricLine[] {
+  const lines = syncedText.split('\n');
+  const parsed: LyricLine[] = [];
+  
+  for (const line of lines) {
+    const match = line.match(/^\[(\d+):(\d+)\.(\d+)\](.*)$/);
+    if (match) {
+      const minutes = parseInt(match[1], 10);
+      const seconds = parseInt(match[2], 10);
+      const centiseconds = parseInt(match[3], 10);
+      const text = match[4].trim();
+      
+      const timeInSeconds = minutes * 60 + seconds + centiseconds / 100;
+      
+      if (text.length > 0) {
+        parsed.push({ time: timeInSeconds, text });
+      }
+    }
+  }
+  
+  return parsed;
+}
+
 // --- HELPER: LOAD ALBUM COLORS ---
 async function loadAlbumColors(albumId: string): Promise<AlbumColors | null> {
   if (state.albumColors[albumId]) {
@@ -267,18 +301,22 @@ async function loadAlbumLogo(albumId: string, logoFilename: string): Promise<voi
 }
 
 // --- HELPER: FETCH LYRICS FROM LRCLIB ---
-async function fetchLyricsFromLrclib(trackName: string, artistName: string, albumName: string): Promise<string | null> {
+async function fetchLyricsFromLrclib(trackName: string, artistName: string, albumName: string): Promise<{ plain: string | null, synced: LyricLine[] | null }> {
   const cacheKey = `${artistName}-${albumName}-${trackName}`;
   
+  if (state.syncedLyricsCache[cacheKey]) {
+    console.log('Synced lyrics found in cache');
+    return { plain: null, synced: state.syncedLyricsCache[cacheKey] };
+  }
+  
   if (state.lyricsCache[cacheKey]) {
-    console.log('Lyrics found in cache');
-    return state.lyricsCache[cacheKey];
+    console.log('Plain lyrics found in cache');
+    return { plain: state.lyricsCache[cacheKey], synced: null };
   }
 
   try {
     console.log(`Searching lrclib for: ${trackName} (Album: ${albumName})`);
     
-    // Use search endpoint instead of get - it's more flexible
     const searchUrl = `https://lrclib.net/api/search?track_name=${encodeURIComponent(trackName)}`;
     
     const searchResponse = await fetch(searchUrl, {
@@ -289,21 +327,19 @@ async function fetchLyricsFromLrclib(trackName: string, artistName: string, albu
     
     if (!searchResponse.ok) {
       console.log('Search failed on lrclib');
-      return null;
+      return { plain: null, synced: null };
     }
 
     const results = await searchResponse.json();
     
     if (!results || results.length === 0) {
       console.log('No results found');
-      return null;
+      return { plain: null, synced: null };
     }
 
-    // Find best match - prioritize album name match if available
     let bestMatch = results[0];
     
     for (const result of results) {
-      // Check if album name matches (case insensitive)
       if (result.albumName && albumName && 
           result.albumName.toLowerCase().includes(albumName.toLowerCase())) {
         bestMatch = result;
@@ -312,7 +348,6 @@ async function fetchLyricsFromLrclib(trackName: string, artistName: string, albu
       }
     }
     
-    // If no album match, check if album name matches track's artist
     if (bestMatch === results[0]) {
       for (const result of results) {
         if (result.artistName && albumName && 
@@ -326,34 +361,30 @@ async function fetchLyricsFromLrclib(trackName: string, artistName: string, albu
     
     console.log(`Using: ${bestMatch.artistName} - ${bestMatch.trackName} (${bestMatch.albumName || 'No album'})`);
     
-    if (bestMatch.plainLyrics) {
-      console.log('Lyrics found!');
+    // Prioritize synced lyrics
+    if (bestMatch.syncedLyrics) {
+      console.log('Synced lyrics found!');
+      const parsed = parseSyncedLyrics(bestMatch.syncedLyrics);
+      state.syncedLyricsCache[cacheKey] = parsed;
+      return { plain: null, synced: parsed };
+    } else if (bestMatch.plainLyrics) {
+      console.log('Plain lyrics found');
       state.lyricsCache[cacheKey] = bestMatch.plainLyrics;
-      return bestMatch.plainLyrics;
-    } else if (bestMatch.syncedLyrics) {
-      console.log('Using synced lyrics (removing timestamps)');
-      const plainText = bestMatch.syncedLyrics
-        .split('\n')
-        .map((line: string) => line.replace(/^\[\d+:\d+\.\d+\]/, '').trim())
-        .filter((line: string) => line.length > 0)
-        .join('\n');
-      
-      state.lyricsCache[cacheKey] = plainText;
-      return plainText;
+      return { plain: bestMatch.plainLyrics, synced: null };
     }
     
-    return null;
+    return { plain: null, synced: null };
   } catch (err) {
     console.error('Error fetching lyrics from lrclib:', err);
-    return null;
+    return { plain: null, synced: null };
   }
 }
 
 // --- HELPER: LOAD LYRICS ---
-async function loadLyrics(trackName: string): Promise<string | null> {
+async function loadLyrics(trackName: string): Promise<{ plain: string | null, synced: LyricLine[] | null }> {
   if (!state.currentAlbum) {
     console.log('No current album');
-    return null;
+    return { plain: null, synced: null };
   }
   
   const { cleanName } = parseTrackName(trackName);
@@ -364,18 +395,32 @@ async function loadLyrics(trackName: string): Promise<string | null> {
 }
 
 // --- HELPER: UPDATE LYRICS PANEL ---
-function updateLyricsPanel(lyrics: string | null) {
+function updateLyricsPanel(lyrics: { plain: string | null, synced: LyricLine[] | null }) {
   const lyricsContent = document.querySelector('.lyrics-content');
   if (!lyricsContent) return;
   
-  if (lyrics) {
-    const lines = lyrics.split('\n');
+  if (lyrics.synced && lyrics.synced.length > 0) {
+    // Display synced lyrics
+    state.currentLyrics = lyrics.synced;
+    state.currentLyricIndex = -1;
+    
+    const htmlContent = lyrics.synced.map((line, index) => {
+      const escaped = line.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return `<p class="lyric-line" data-index="${index}" data-time="${line.time}">${escaped}</p>`;
+    }).join('');
+    
+    lyricsContent.innerHTML = htmlContent;
+  } else if (lyrics.plain) {
+    // Display plain lyrics (no sync)
+    state.currentLyrics = [];
+    state.currentLyricIndex = -1;
+    
+    const lines = lyrics.plain.split('\n');
     const htmlContent = lines.map(line => {
       const trimmed = line.trim();
       if (trimmed === '') {
         return '<p><br></p>';
       }
-      // Escape HTML to prevent XSS
       const escaped = trimmed.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       return `<p>${escaped}</p>`;
     }).join('');
@@ -383,6 +428,39 @@ function updateLyricsPanel(lyrics: string | null) {
   } else {
     lyricsContent.innerHTML = '<p class="lyrics-placeholder">No lyrics available for this track</p>';
   }
+}
+
+// --- HELPER: UPDATE SYNCED LYRICS ---
+function updateSyncedLyrics(currentTime: number) {
+  if (state.currentLyrics.length === 0) return;
+  
+  // Find current lyric index
+  let newIndex = -1;
+  for (let i = state.currentLyrics.length - 1; i >= 0; i--) {
+    if (currentTime >= state.currentLyrics[i].time) {
+      newIndex = i;
+      break;
+    }
+  }
+  
+  if (newIndex === state.currentLyricIndex) return;
+  
+  state.currentLyricIndex = newIndex;
+  
+  // Update highlighting
+  const lyricsContent = document.querySelector('.lyrics-content');
+  if (!lyricsContent) return;
+  
+  const lines = lyricsContent.querySelectorAll('.lyric-line');
+  lines.forEach((line, index) => {
+    if (index === newIndex) {
+      line.classList.add('active');
+      // Smooth scroll to active line within the lyrics container only
+      line.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    } else {
+      line.classList.remove('active');
+    }
+  });
 }
 
 // --- HELPER: APPLY ALBUM COLORS TO GRID ---
@@ -462,10 +540,11 @@ async function loadTrackDuration(fileId: string, index: number) {
   }
 
   try {
+      // For FLAC files, we need more data - fetch first 200KB
       const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
           headers: { 
               'Authorization': `Bearer ${state.token}`,
-              'Range': 'bytes=0-50000'
+              'Range': 'bytes=0-204800'  // 200KB instead of 50KB
           }
       });
       
@@ -475,22 +554,46 @@ async function loadTrackDuration(fileId: string, index: number) {
       const blobUrl = URL.createObjectURL(blob);
       
       const tempAudio = new Audio(blobUrl);
-      tempAudio.addEventListener('loadedmetadata', () => {
-          const duration = tempAudio.duration;
-          if (duration && isFinite(duration)) {
-              const minutes = Math.floor(duration / 60);
-              const seconds = Math.floor(duration % 60);
-              const formatted = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+      
+      // Wait for metadata with timeout
+      await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+              tempAudio.removeEventListener('loadedmetadata', onMetadata);
+              tempAudio.removeEventListener('error', onError);
+              URL.revokeObjectURL(blobUrl);
+              reject(new Error('Timeout'));
+          }, 5000);
+          
+          const onMetadata = () => {
+              clearTimeout(timeout);
+              const duration = tempAudio.duration;
+              
+              if (duration && isFinite(duration)) {
+                  const minutes = Math.floor(duration / 60);
+                  const seconds = Math.floor(duration % 60);
+                  const formatted = `${minutes}:${seconds.toString().padStart(2, '0')}`;
 
-              state.durationCache[fileId] = formatted;
+                  state.durationCache[fileId] = formatted;
 
-              const durationEl = document.querySelector(`[data-index="${index}"]`);
-              if (durationEl) durationEl.textContent = formatted;
-          }
-          URL.revokeObjectURL(blobUrl);
+                  const durationEl = document.querySelector(`[data-index="${index}"]`);
+                  if (durationEl) durationEl.textContent = formatted;
+              }
+              
+              URL.revokeObjectURL(blobUrl);
+              resolve();
+          };
+          
+          const onError = () => {
+              clearTimeout(timeout);
+              URL.revokeObjectURL(blobUrl);
+              reject(new Error('Load error'));
+          };
+          
+          tempAudio.addEventListener('loadedmetadata', onMetadata);
+          tempAudio.addEventListener('error', onError);
       });
-  } catch {
-      // ignore
+  } catch (err) {
+      console.error(`Failed to load duration for file ${fileId}:`, err);
   }
 }
 
@@ -903,7 +1006,7 @@ async function play(index: number, retryCount = 0) {
             updateLyricsPanel(lyrics);
           }).catch(err => {
             console.error('Failed to load lyrics:', err);
-            updateLyricsPanel(null);
+            updateLyricsPanel({ plain: null, synced: null });
           });
         }
       }
@@ -972,6 +1075,9 @@ audio.ontimeupdate = () => {
   if (!audio.duration) return;
   const pct = (audio.currentTime / audio.duration) * 100;
   pBarFill.style.width = `${pct}%`;
+  
+  // Update synced lyrics
+  updateSyncedLyrics(audio.currentTime);
 };
 
 audio.onended = () => { 
