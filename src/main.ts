@@ -35,6 +35,7 @@ let state = {
   durationCache: {} as Record<string, string>,
   albumColors: {} as Record<string, AlbumColors>,
   albumLogos: {} as Record<string, string>,
+  lyricsCache: {} as Record<string, string>,
 
   // Playback
   playlist: [] as DriveFile[],
@@ -265,6 +266,89 @@ async function loadAlbumLogo(albumId: string, logoFilename: string): Promise<voi
   }
 }
 
+// --- HELPER: FETCH LYRICS FROM LRCLIB ---
+async function fetchLyricsFromLrclib(trackName: string, artistName: string, albumName: string): Promise<string | null> {
+  const cacheKey = `${artistName}-${albumName}-${trackName}`;
+  
+  if (state.lyricsCache[cacheKey]) {
+    console.log('Lyrics found in cache');
+    return state.lyricsCache[cacheKey];
+  }
+
+  try {
+    console.log(`Searching lrclib for: ${trackName} (Album: ${albumName})`);
+    
+    // Use search endpoint instead of get - it's more flexible
+    const searchUrl = `https://lrclib.net/api/search?track_name=${encodeURIComponent(trackName)}`;
+    
+    const searchResponse = await fetch(searchUrl, {
+      headers: {
+        'User-Agent': 'MP3P Music Player v1.0'
+      }
+    });
+    
+    if (!searchResponse.ok) {
+      console.log('Search failed on lrclib');
+      return null;
+    }
+
+    const results = await searchResponse.json();
+    
+    if (!results || results.length === 0) {
+      console.log('No results found');
+      return null;
+    }
+
+    // Find best match - prioritize album name match if available
+    let bestMatch = results[0];
+    
+    for (const result of results) {
+      // Check if album name matches (case insensitive)
+      if (result.albumName && albumName && 
+          result.albumName.toLowerCase().includes(albumName.toLowerCase())) {
+        bestMatch = result;
+        console.log(`Found album match: ${result.artistName} - ${result.trackName} (${result.albumName})`);
+        break;
+      }
+    }
+    
+    // If no album match, check if album name matches track's artist
+    if (bestMatch === results[0]) {
+      for (const result of results) {
+        if (result.artistName && albumName && 
+            result.artistName.toLowerCase().includes(albumName.toLowerCase())) {
+          bestMatch = result;
+          console.log(`Found artist match: ${result.artistName} - ${result.trackName}`);
+          break;
+        }
+      }
+    }
+    
+    console.log(`Using: ${bestMatch.artistName} - ${bestMatch.trackName} (${bestMatch.albumName || 'No album'})`);
+    
+    if (bestMatch.plainLyrics) {
+      console.log('Lyrics found!');
+      state.lyricsCache[cacheKey] = bestMatch.plainLyrics;
+      return bestMatch.plainLyrics;
+    } else if (bestMatch.syncedLyrics) {
+      console.log('Using synced lyrics (removing timestamps)');
+      const plainText = bestMatch.syncedLyrics
+        .split('\n')
+        .map((line: string) => line.replace(/^\[\d+:\d+\.\d+\]/, '').trim())
+        .filter((line: string) => line.length > 0)
+        .join('\n');
+      
+      state.lyricsCache[cacheKey] = plainText;
+      return plainText;
+    }
+    
+    return null;
+  } catch (err) {
+    console.error('Error fetching lyrics from lrclib:', err);
+    return null;
+  }
+}
+
 // --- HELPER: LOAD LYRICS ---
 async function loadLyrics(trackName: string): Promise<string | null> {
   if (!state.currentAlbum) {
@@ -272,44 +356,11 @@ async function loadLyrics(trackName: string): Promise<string | null> {
     return null;
   }
   
-  try {
-    // Remove extension and add .txt
-    const lyricsFileName = trackName.replace(/\.[^/.]+$/, "") + '.txt';
-    console.log('Looking for lyrics file:', lyricsFileName);
-    console.log('In album:', state.currentAlbum.name, 'ID:', state.currentAlbum.id);
-    
-    const res: any = await gapi.client.drive.files.list({
-      q: `name = '${lyricsFileName}' and '${state.currentAlbum.id}' in parents and trashed = false`,
-      fields: "files(id, name)",
-      pageSize: 1
-    });
-
-    console.log('Lyrics search result:', res.result.files);
-
-    if (!res.result.files || res.result.files.length === 0) {
-      console.log('No lyrics file found for:', lyricsFileName);
-      return null;
-    }
-
-    const fileId = res.result.files[0].id;
-    console.log('Found lyrics file with ID:', fileId);
-
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-      headers: { 'Authorization': `Bearer ${state.token}` }
-    });
-
-    if (!response.ok) {
-      console.error('Failed to fetch lyrics:', response.status);
-      return null;
-    }
-
-    const text = await response.text();
-    console.log('Lyrics loaded, length:', text.length);
-    return text;
-  } catch (err) {
-    console.error('Error loading lyrics:', err);
-    return null;
-  }
+  const { cleanName } = parseTrackName(trackName);
+  const artistName = state.currentAlbum.name;
+  const albumName = state.currentAlbum.name;
+  
+  return await fetchLyricsFromLrclib(cleanName, artistName, albumName);
 }
 
 // --- HELPER: UPDATE LYRICS PANEL ---
@@ -324,7 +375,9 @@ function updateLyricsPanel(lyrics: string | null) {
       if (trimmed === '') {
         return '<p><br></p>';
       }
-      return `<p>${trimmed}</p>`;
+      // Escape HTML to prevent XSS
+      const escaped = trimmed.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return `<p>${escaped}</p>`;
     }).join('');
     lyricsContent.innerHTML = htmlContent;
   } else {
@@ -843,7 +896,7 @@ async function play(index: number, retryCount = 0) {
       if (window.innerWidth > 768) {
         const lyricsContent = document.querySelector('.lyrics-content');
         if (lyricsContent) {
-          lyricsContent.innerHTML = '<p class="lyrics-placeholder">Loading lyrics...</p>';
+          lyricsContent.innerHTML = '<p class="lyrics-placeholder">Searching lyrics...</p>';
           
           // Load lyrics in background
           loadLyrics(file.name).then(lyrics => {
