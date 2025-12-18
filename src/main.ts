@@ -56,6 +56,8 @@ let state = {
   // Lyrics sync
   currentLyrics: [] as LyricLine[],
   currentLyricIndex: -1,
+  currentTrackLyrics: { plain: null as string | null, synced: null as LyricLine[] | null },
+  lyricsCurtainOpen: false,
 
   // Search
   searchQuery: ''
@@ -63,6 +65,8 @@ let state = {
 
 // --- DOM SETUP ---
 const app = document.querySelector<HTMLDivElement>('#app')!;
+// Replace the player bar and lyrics curtain HTML in your DOM setup:
+
 app.innerHTML = `
   <header id="main-header">
     <div class="header-left">
@@ -92,6 +96,16 @@ app.innerHTML = `
       (READING FOLDER: "${MUSIC_FOLDER_NAME}")
     </div>
   </div>
+
+  <div id="lyrics-curtain" class="lyrics-curtain-mini">
+    <div class="lyrics-curtain-content">
+      <p class="lyrics-placeholder">No track playing</p>
+    </div>
+  </div>
+
+  <button class="lyrics-toggle-btn-mini" id="btn-lyrics-toggle" style="display:none;" title="Show/Hide Lyrics">
+    <span class="arrow-icon-mini">››</span>
+  </button>
 
   <div id="player-bar">
     <div class="p-art-box">
@@ -132,9 +146,12 @@ const pArt = document.getElementById('p-art') as HTMLImageElement;
 const btnPlay = document.getElementById('btn-play')!;
 const btnNext = document.getElementById('btn-next')!;
 const btnPrev = document.getElementById('btn-prev')!;
+const btnLyricsToggle = document.getElementById('btn-lyrics-toggle')!;
 const pScrubber = document.getElementById('p-scrubber')!; 
 const pBarBg = document.getElementById('p-bar-bg')!;
 const pBarFill = document.getElementById('p-bar-fill')!;
+
+const lyricsCurtain = document.getElementById('lyrics-curtain')!;
 
 const searchBtn = document.getElementById('search-btn')!;
 const searchContainer = document.getElementById('search-container')!;
@@ -142,6 +159,19 @@ const searchInput = document.getElementById('search-input') as HTMLInputElement;
 const clearSearchBtn = document.getElementById('clear-search')!;
 
 pArt.onerror = () => { if (pArt.src !== FALLBACK_COVER) pArt.src = FALLBACK_COVER; };
+
+// --- LYRICS CURTAIN HANDLER ---
+btnLyricsToggle.onclick = () => {
+  state.lyricsCurtainOpen = !state.lyricsCurtainOpen;
+  if (state.lyricsCurtainOpen) {
+    lyricsCurtain.classList.add('open');
+    btnLyricsToggle.classList.add('active');
+    updateCurtainLyrics(state.currentTrackLyrics);
+  } else {
+    lyricsCurtain.classList.remove('open');
+    btnLyricsToggle.classList.remove('active');
+  }
+};
 
 // --- SEARCH HANDLERS ---
 searchBtn.onclick = () => {
@@ -361,7 +391,6 @@ async function fetchLyricsFromLrclib(trackName: string, artistName: string, albu
     
     console.log(`Using: ${bestMatch.artistName} - ${bestMatch.trackName} (${bestMatch.albumName || 'No album'})`);
     
-    // Prioritize synced lyrics
     if (bestMatch.syncedLyrics) {
       console.log('Synced lyrics found!');
       const parsed = parseSyncedLyrics(bestMatch.syncedLyrics);
@@ -394,13 +423,12 @@ async function loadLyrics(trackName: string): Promise<{ plain: string | null, sy
   return await fetchLyricsFromLrclib(cleanName, artistName, albumName);
 }
 
-// --- HELPER: UPDATE LYRICS PANEL ---
+// --- HELPER: UPDATE LYRICS PANEL (IN ALBUM VIEW) ---
 function updateLyricsPanel(lyrics: { plain: string | null, synced: LyricLine[] | null }) {
   const lyricsContent = document.querySelector('.lyrics-content');
   if (!lyricsContent) return;
   
   if (lyrics.synced && lyrics.synced.length > 0) {
-    // Display synced lyrics
     state.currentLyrics = lyrics.synced;
     state.currentLyricIndex = -1;
     
@@ -411,7 +439,6 @@ function updateLyricsPanel(lyrics: { plain: string | null, synced: LyricLine[] |
     
     lyricsContent.innerHTML = htmlContent;
   } else if (lyrics.plain) {
-    // Display plain lyrics (no sync)
     state.currentLyrics = [];
     state.currentLyricIndex = -1;
     
@@ -430,11 +457,38 @@ function updateLyricsPanel(lyrics: { plain: string | null, synced: LyricLine[] |
   }
 }
 
+// --- HELPER: UPDATE CURTAIN LYRICS ---
+function updateCurtainLyrics(lyrics: { plain: string | null, synced: LyricLine[] | null }) {
+  const curtainContent = document.querySelector('.lyrics-curtain-content');
+  if (!curtainContent) return;
+  
+  if (lyrics.synced && lyrics.synced.length > 0) {
+    const htmlContent = lyrics.synced.map((line, index) => {
+      const escaped = line.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return `<p class="lyric-line-curtain" data-index="${index}" data-time="${line.time}">${escaped}</p>`;
+    }).join('');
+    
+    curtainContent.innerHTML = htmlContent;
+  } else if (lyrics.plain) {
+    const lines = lyrics.plain.split('\n');
+    const htmlContent = lines.map(line => {
+      const trimmed = line.trim();
+      if (trimmed === '') {
+        return '<p><br></p>';
+      }
+      const escaped = trimmed.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return `<p>${escaped}</p>`;
+    }).join('');
+    curtainContent.innerHTML = htmlContent;
+  } else {
+    curtainContent.innerHTML = '<p class="lyrics-placeholder">No lyrics available for this track</p>';
+  }
+}
+
 // --- HELPER: UPDATE SYNCED LYRICS ---
 function updateSyncedLyrics(currentTime: number) {
   if (state.currentLyrics.length === 0) return;
   
-  // Find current lyric index
   let newIndex = -1;
   for (let i = state.currentLyrics.length - 1; i >= 0; i--) {
     if (currentTime >= state.currentLyrics[i].time) {
@@ -447,20 +501,33 @@ function updateSyncedLyrics(currentTime: number) {
   
   state.currentLyricIndex = newIndex;
   
-  // Update highlighting
+  // Update in album view
   const lyricsContent = document.querySelector('.lyrics-content');
-  if (!lyricsContent) return;
+  if (lyricsContent) {
+    const lines = lyricsContent.querySelectorAll('.lyric-line');
+    lines.forEach((line, index) => {
+      if (index === newIndex) {
+        line.classList.add('active');
+        line.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+      } else {
+        line.classList.remove('active');
+      }
+    });
+  }
   
-  const lines = lyricsContent.querySelectorAll('.lyric-line');
-  lines.forEach((line, index) => {
-    if (index === newIndex) {
-      line.classList.add('active');
-      // Smooth scroll to active line within the lyrics container only
-      line.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-    } else {
-      line.classList.remove('active');
-    }
-  });
+  // Update in curtain
+  const curtainContent = document.querySelector('.lyrics-curtain-content');
+  if (curtainContent && state.lyricsCurtainOpen) {
+    const curtainLines = curtainContent.querySelectorAll('.lyric-line-curtain');
+    curtainLines.forEach((line, index) => {
+      if (index === newIndex) {
+        line.classList.add('active');
+        line.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+      } else {
+        line.classList.remove('active');
+      }
+    });
+  }
 }
 
 // --- HELPER: APPLY ALBUM COLORS TO GRID ---
@@ -540,11 +607,10 @@ async function loadTrackDuration(fileId: string, index: number) {
   }
 
   try {
-      // For FLAC files, we need more data - fetch first 200KB
       const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
           headers: { 
               'Authorization': `Bearer ${state.token}`,
-              'Range': 'bytes=0-204800'  // 200KB instead of 50KB
+              'Range': 'bytes=0-204800'
           }
       });
       
@@ -555,7 +621,6 @@ async function loadTrackDuration(fileId: string, index: number) {
       
       const tempAudio = new Audio(blobUrl);
       
-      // Wait for metadata with timeout
       await new Promise<void>((resolve, reject) => {
           const timeout = setTimeout(() => {
               tempAudio.removeEventListener('loadedmetadata', onMetadata);
@@ -803,7 +868,6 @@ function renderTrackList() {
     const container = document.createElement('div');
     container.className = 'album-view-desktop';
     
-    // Left section
     const leftSection = document.createElement('div');
     leftSection.className = 'album-left';
     
@@ -825,7 +889,6 @@ function renderTrackList() {
     leftSection.appendChild(artBox);
     leftSection.appendChild(infoBox);
     
-    // Middle section
     const middleSection = document.createElement('div');
     middleSection.className = 'album-middle';
     const list = document.createElement('div');
@@ -863,7 +926,6 @@ function renderTrackList() {
     
     middleSection.appendChild(list);
     
-    // Right section
     const rightSection = document.createElement('div');
     rightSection.className = 'album-right';
     rightSection.id = 'lyrics-panel';
@@ -874,6 +936,11 @@ function renderTrackList() {
       </div>
     `;
     
+    // If there's a current track playing, load its lyrics
+    if (state.currentTrackLyrics.plain || state.currentTrackLyrics.synced) {
+      setTimeout(() => updateLyricsPanel(state.currentTrackLyrics), 100);
+    }
+    
     container.appendChild(leftSection);
     container.appendChild(middleSection);
     container.appendChild(rightSection);
@@ -881,7 +948,6 @@ function renderTrackList() {
     mainView.innerHTML = '';
     mainView.appendChild(container);
   } else {
-    // Mobile layout
     const list = document.createElement('div');
     list.className = 'track-list';
     
@@ -920,7 +986,6 @@ function renderTrackList() {
   }
 }
 
-// --- PLAYER ENGINE WITH RETRY ---
 async function play(index: number, retryCount = 0) {
   if (state.isLoadingTrack) {
       console.log('Already loading a track, skipping...');
@@ -995,21 +1060,27 @@ async function play(index: number, retryCount = 0) {
       const { cleanName } = parseTrackName(file.name);
       pTitle.innerText = cleanName.toUpperCase();
       
-      // Load lyrics for desktop (async, non-blocking)
-      if (window.innerWidth > 768) {
+      // Show lyrics button
+      btnLyricsToggle.style.display = 'block';
+      
+      // Load lyrics in background
+      loadLyrics(file.name).then(lyrics => {
+        state.currentTrackLyrics = lyrics;
+        
+        // Update album view lyrics if visible
         const lyricsContent = document.querySelector('.lyrics-content');
         if (lyricsContent) {
-          lyricsContent.innerHTML = '<p class="lyrics-placeholder">Searching lyrics...</p>';
-          
-          // Load lyrics in background
-          loadLyrics(file.name).then(lyrics => {
-            updateLyricsPanel(lyrics);
-          }).catch(err => {
-            console.error('Failed to load lyrics:', err);
-            updateLyricsPanel({ plain: null, synced: null });
-          });
+          updateLyricsPanel(lyrics);
         }
-      }
+        
+        // Update curtain lyrics if open
+        if (state.lyricsCurtainOpen) {
+          updateCurtainLyrics(lyrics);
+        }
+      }).catch(err => {
+        console.error('Failed to load lyrics:', err);
+        state.currentTrackLyrics = { plain: null, synced: null };
+      });
       
   } catch (err: any) {
       console.error("Playback Error:", err);
@@ -1047,7 +1118,6 @@ async function play(index: number, retryCount = 0) {
   }
 }
 
-// --- CONTROLS ---
 function updatePlayBtn() {
   btnPlay.textContent = state.isPlaying ? '||' : '▶';
 }
@@ -1076,7 +1146,6 @@ audio.ontimeupdate = () => {
   const pct = (audio.currentTime / audio.duration) * 100;
   pBarFill.style.width = `${pct}%`;
   
-  // Update synced lyrics
   updateSyncedLyrics(audio.currentTime);
 };
 
