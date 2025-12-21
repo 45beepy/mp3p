@@ -63,10 +63,12 @@ let state = {
   searchQuery: ''
 };
 
+// --- PRELOAD AUDIO (NEW) ---
+let preloadAudio: HTMLAudioElement | null = null;
+let preloadedFileId: string | null = null;
+
 // --- DOM SETUP ---
 const app = document.querySelector<HTMLDivElement>('#app')!;
-// Replace the player bar and lyrics curtain HTML in your DOM setup:
-
 app.innerHTML = `
   <header id="main-header">
     <div class="header-left">
@@ -139,6 +141,16 @@ const mainView = document.getElementById('main-view')!;
 const backBtn = document.getElementById('back-btn')!;
 const pageTitle = document.getElementById('page-title')!;
 const audio = document.getElementById('audio-engine') as HTMLAudioElement;
+
+audio.preload = 'auto';
+(audio as any).playsInline = true;
+
+preloadAudio = new Audio();
+preloadAudio.preload = 'auto';
+(preloadAudio as any).playsInline = true;
+preloadAudio.muted = true;
+preloadAudio.style.display = 'none';
+document.body.appendChild(preloadAudio);
 
 const pTitle = document.getElementById('p-title')!;
 const pArtist = document.getElementById('p-artist')!;
@@ -335,35 +347,27 @@ async function fetchLyricsFromLrclib(trackName: string, artistName: string, albu
   const cacheKey = `${artistName}-${albumName}-${trackName}`;
   
   if (state.syncedLyricsCache[cacheKey]) {
-    console.log('Synced lyrics found in cache');
     return { plain: null, synced: state.syncedLyricsCache[cacheKey] };
   }
   
   if (state.lyricsCache[cacheKey]) {
-    console.log('Plain lyrics found in cache');
     return { plain: state.lyricsCache[cacheKey], synced: null };
   }
 
   try {
-    console.log(`Searching lrclib for: ${trackName} (Album: ${albumName})`);
-    
     const searchUrl = `https://lrclib.net/api/search?track_name=${encodeURIComponent(trackName)}`;
     
     const searchResponse = await fetch(searchUrl, {
-      headers: {
-        'User-Agent': 'MP3P Music Player v1.0'
-      }
+      headers: { 'User-Agent': 'MP3P Music Player v1.0' }
     });
     
     if (!searchResponse.ok) {
-      console.log('Search failed on lrclib');
       return { plain: null, synced: null };
     }
 
     const results = await searchResponse.json();
     
     if (!results || results.length === 0) {
-      console.log('No results found');
       return { plain: null, synced: null };
     }
 
@@ -373,7 +377,6 @@ async function fetchLyricsFromLrclib(trackName: string, artistName: string, albu
       if (result.albumName && albumName && 
           result.albumName.toLowerCase().includes(albumName.toLowerCase())) {
         bestMatch = result;
-        console.log(`Found album match: ${result.artistName} - ${result.trackName} (${result.albumName})`);
         break;
       }
     }
@@ -383,28 +386,22 @@ async function fetchLyricsFromLrclib(trackName: string, artistName: string, albu
         if (result.artistName && albumName && 
             result.artistName.toLowerCase().includes(albumName.toLowerCase())) {
           bestMatch = result;
-          console.log(`Found artist match: ${result.artistName} - ${result.trackName}`);
           break;
         }
       }
     }
     
-    console.log(`Using: ${bestMatch.artistName} - ${bestMatch.trackName} (${bestMatch.albumName || 'No album'})`);
-    
     if (bestMatch.syncedLyrics) {
-      console.log('Synced lyrics found!');
       const parsed = parseSyncedLyrics(bestMatch.syncedLyrics);
       state.syncedLyricsCache[cacheKey] = parsed;
       return { plain: null, synced: parsed };
     } else if (bestMatch.plainLyrics) {
-      console.log('Plain lyrics found');
       state.lyricsCache[cacheKey] = bestMatch.plainLyrics;
       return { plain: bestMatch.plainLyrics, synced: null };
     }
     
     return { plain: null, synced: null };
-  } catch (err) {
-    console.error('Error fetching lyrics from lrclib:', err);
+  } catch {
     return { plain: null, synced: null };
   }
 }
@@ -412,7 +409,6 @@ async function fetchLyricsFromLrclib(trackName: string, artistName: string, albu
 // --- HELPER: LOAD LYRICS ---
 async function loadLyrics(trackName: string): Promise<{ plain: string | null, synced: LyricLine[] | null }> {
   if (!state.currentAlbum) {
-    console.log('No current album');
     return { plain: null, synced: null };
   }
   
@@ -433,7 +429,7 @@ function updateLyricsPanel(lyrics: { plain: string | null, synced: LyricLine[] |
     state.currentLyricIndex = -1;
     
     const htmlContent = lyrics.synced.map((line, index) => {
-      const escaped = line.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const escaped = line.text.replace(/&/g, '&amp;').replace(/<//g, '&lt;').replace(/>/g, '&gt;');
       return `<p class="lyric-line" data-index="${index}" data-time="${line.time}">${escaped}</p>`;
     }).join('');
     
@@ -448,7 +444,7 @@ function updateLyricsPanel(lyrics: { plain: string | null, synced: LyricLine[] |
       if (trimmed === '') {
         return '<p><br></p>';
       }
-      const escaped = trimmed.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const escaped = trimmed.replace(/&/g, '&amp;').replace(/<//g, '&lt;').replace(/>/g, '&gt;');
       return `<p>${escaped}</p>`;
     }).join('');
     lyricsContent.innerHTML = htmlContent;
@@ -501,7 +497,6 @@ function updateSyncedLyrics(currentTime: number) {
   
   state.currentLyricIndex = newIndex;
   
-  // Update in album view
   const lyricsContent = document.querySelector('.lyrics-content');
   if (lyricsContent) {
     const lines = lyricsContent.querySelectorAll('.lyric-line');
@@ -515,7 +510,6 @@ function updateSyncedLyrics(currentTime: number) {
     });
   }
   
-  // Update in curtain
   const curtainContent = document.querySelector('.lyrics-curtain-content');
   if (curtainContent && state.lyricsCurtainOpen) {
     const curtainLines = curtainContent.querySelectorAll('.lyric-line-curtain');
@@ -936,7 +930,6 @@ function renderTrackList() {
       </div>
     `;
     
-    // If there's a current track playing, load its lyrics
     if (state.currentTrackLyrics.plain || state.currentTrackLyrics.synced) {
       setTimeout(() => updateLyricsPanel(state.currentTrackLyrics), 100);
     }
@@ -986,9 +979,51 @@ function renderTrackList() {
   }
 }
 
+// --- PRELOAD HELPERS (NEW) ---
+function schedulePreloadNext() {
+  if (!preloadAudio || !state.playlist.length) return;
+  if (!audio.duration || !isFinite(audio.duration)) return;
+
+  const nextIndex = state.currentIndex + 1;
+  if (nextIndex >= state.playlist.length) return;
+
+  const targetFile = state.playlist[nextIndex];
+  if (preloadedFileId === targetFile.id) return;
+
+  const halfway = audio.duration / 2;
+
+  const handler = () => {
+    if (!audio.duration) return;
+    if (audio.currentTime >= halfway) {
+      audio.removeEventListener('timeupdate', handler);
+      preloadTrack(targetFile);
+    }
+  };
+
+  audio.addEventListener('timeupdate', handler);
+}
+
+async function preloadTrack(file: DriveFile) {
+  if (!preloadAudio) return;
+  try {
+    const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+      headers: { 'Authorization': `Bearer ${state.token}`, 'Accept': 'audio/*' }
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    preloadAudio.src = url;
+    preloadedFileId = file.id;
+    preloadAudio.load();
+  } catch (e) {
+    console.error('Preload failed', e);
+    preloadedFileId = null;
+  }
+}
+
+// --- PLAYER ENGINE WITH PRELOAD ---
 async function play(index: number, retryCount = 0) {
   if (state.isLoadingTrack) {
-      console.log('Already loading a track, skipping...');
       return;
   }
 
@@ -1028,22 +1063,29 @@ async function play(index: number, retryCount = 0) {
       state.blobUrl = null; 
   }
 
+  // try to use preloaded audio first
+  const canUsePreloaded = preloadAudio && preloadedFileId === file.id;
   try {
-      const response = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
-          headers: { 
-              'Authorization': `Bearer ${state.token}`,
-              'Accept': 'audio/*'
-          }
-      });
-      
-      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      state.blobUrl = blobUrl;
-      
-      audio.src = blobUrl;
-      audio.load();
+      if (canUsePreloaded && preloadAudio) {
+        audio.src = preloadAudio.src;
+        audio.load();
+      } else {
+        const response = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+            headers: { 
+                'Authorization': `Bearer ${state.token}`,
+                'Accept': 'audio/*'
+            }
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        state.blobUrl = blobUrl;
+        
+        audio.src = blobUrl;
+        audio.load();
+      }
       
       await new Promise((resolve, reject) => {
           audio.oncanplaythrough = resolve;
@@ -1060,20 +1102,16 @@ async function play(index: number, retryCount = 0) {
       const { cleanName } = parseTrackName(file.name);
       pTitle.innerText = cleanName.toUpperCase();
       
-      // Show lyrics button
       btnLyricsToggle.style.display = 'block';
       
-      // Load lyrics in background
       loadLyrics(file.name).then(lyrics => {
         state.currentTrackLyrics = lyrics;
         
-        // Update album view lyrics if visible
         const lyricsContent = document.querySelector('.lyrics-content');
         if (lyricsContent) {
           updateLyricsPanel(lyrics);
         }
         
-        // Update curtain lyrics if open
         if (state.lyricsCurtainOpen) {
           updateCurtainLyrics(lyrics);
         }
@@ -1081,13 +1119,15 @@ async function play(index: number, retryCount = 0) {
         console.error('Failed to load lyrics:', err);
         state.currentTrackLyrics = { plain: null, synced: null };
       });
+
+      // schedule preload for next track
+      schedulePreloadNext();
       
   } catch (err: any) {
       console.error("Playback Error:", err);
       state.isLoadingTrack = false;
       
       if (retryCount < 2) {
-          console.log(`Retrying playback... (${retryCount + 1}/2)`);
           setTimeout(() => play(index, retryCount + 1), 1000);
           return;
       }
@@ -1105,19 +1145,20 @@ async function play(index: number, retryCount = 0) {
 
   if ('mediaSession' in navigator) {
       const { cleanName } = parseTrackName(file.name);
-      navigator.mediaSession.metadata = new MediaMetadata({
+      (navigator as any).mediaSession.metadata = new (window as any).MediaMetadata({
           title: cleanName,
           artist: state.currentAlbum?.name || 'Unknown',
           artwork: [{ src: pArt.src, sizes: '512x512', type: 'image/jpeg' }]
       });
       
-      navigator.mediaSession.setActionHandler('play', () => { audio.play(); state.isPlaying = true; updatePlayBtn(); });
-      navigator.mediaSession.setActionHandler('pause', () => { audio.pause(); state.isPlaying = false; updatePlayBtn(); });
-      navigator.mediaSession.setActionHandler('previoustrack', () => { if (state.currentIndex > 0) play(state.currentIndex - 1); });
-      navigator.mediaSession.setActionHandler('nexttrack', () => { if (state.currentIndex < state.playlist.length - 1) play(state.currentIndex + 1); });
+      (navigator as any).mediaSession.setActionHandler('play', () => { audio.play(); state.isPlaying = true; updatePlayBtn(); });
+      (navigator as any).mediaSession.setActionHandler('pause', () => { audio.pause(); state.isPlaying = false; updatePlayBtn(); });
+      (navigator as any).mediaSession.setActionHandler('previoustrack', () => { if (state.currentIndex > 0) play(state.currentIndex - 1); });
+      (navigator as any).mediaSession.setActionHandler('nexttrack', () => { if (state.currentIndex < state.playlist.length - 1) play(state.currentIndex + 1); });
   }
 }
 
+// --- CONTROLS ---
 function updatePlayBtn() {
   btnPlay.textContent = state.isPlaying ? '||' : '▶';
 }
@@ -1174,7 +1215,9 @@ audio.onerror = (e) => {
 pScrubber.onclick = (e) => {
   const rect = pBarBg.getBoundingClientRect();
   const pos = (e.clientX - rect.left) / rect.width;
-  audio.currentTime = pos * audio.duration;
+  if (audio.duration && isFinite(audio.duration)) {
+    audio.currentTime = pos * audio.duration;
+  }
 };
 
 loadScripts();
