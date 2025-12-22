@@ -553,43 +553,64 @@ function applyAlbumColors(albumId: string) {
   });
 }
 
+
+
 // --- HELPER: APPLY ALBUM TITLE COLORS ---
 function applyAlbumTitleColors(albumId: string) {
   const colors = state.albumColors[albumId];
   const logoUrl = state.albumLogos[albumId];
-  
+
   if (colors) {
     pageTitle.style.backgroundColor = colors.titleBg;
     pageTitle.style.color = colors.titleText;
-    
+
     if (logoUrl) {
+      // Logo-only header
       pageTitle.classList.add('has-logo');
       pageTitle.style.backgroundImage = `url("${logoUrl}")`;
-      pageTitle.setAttribute('aria-label', pageTitle.textContent || '');
+      pageTitle.textContent = '';                 // hide text completely
+      pageTitle.style.padding = '0 15px';         // matches h1.has-logo
+      pageTitle.setAttribute('aria-label', state.currentAlbum?.name || '');
     } else {
+      // Colored text header with album name
       pageTitle.classList.remove('has-logo');
       pageTitle.style.backgroundImage = '';
+      pageTitle.textContent = state.currentAlbum?.name.toUpperCase() || 'MP3P';
+      pageTitle.style.padding = '0 5px';          // matches base h1
     }
   } else {
+    // Default MP3P header
     pageTitle.classList.remove('has-logo');
     pageTitle.style.backgroundColor = '';
     pageTitle.style.color = '';
     pageTitle.style.backgroundImage = '';
+    pageTitle.textContent = 'MP3P';
+    pageTitle.style.padding = '0 5px';
   }
 }
 
-// --- HELPER: APPLY PLAY BUTTON COLORS ---
+
+
+
 function applyPlayButtonColors(albumId: string) {
   const colors = state.albumColors[albumId];
-  
-  if (colors) {
-    btnPlay.style.backgroundColor = colors.font;
-    btnPlay.style.color = colors.titleText;
-  } else {
+
+  // If we don't have a line color, fall back to default CSS
+  if (!colors || !colors.line) {
     btnPlay.style.backgroundColor = '';
+    btnPlay.style.borderColor = '';
     btnPlay.style.color = '';
+    return;
   }
+
+  // Use underline color as play button color
+  btnPlay.style.backgroundColor = colors.line;
+  btnPlay.style.borderColor = colors.line;
+
+  // Use titleText if available, else black
+  btnPlay.style.color = (colors.titleText || '#000');
 }
+
 
 // --- HELPER: RESET TITLE COLORS ---
 function resetTitleColors() {
@@ -602,8 +623,10 @@ function resetTitleColors() {
 // --- HELPER: RESET PLAY BUTTON COLORS ---
 function resetPlayButtonColors() {
   btnPlay.style.backgroundColor = '';
+  btnPlay.style.borderColor = '';
   btnPlay.style.color = '';
 }
+
 
 // --- HELPER: LOAD TRACK DURATION WITH CACHE ---
 async function loadTrackDuration(fileId: string, index: number) {

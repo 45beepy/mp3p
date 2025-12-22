@@ -4,6 +4,8 @@
   --yellow: #ffff64;
   --gray: #9a9a9a;
   --border: #333;
+  --theme-font: var(--yellow);   /* default fallback */
+  --theme-line: var(--yellow);   /* default fallback */
 }
 
 body { 
@@ -126,18 +128,28 @@ h1 {
   align-items: center;
   min-height: 2rem;
   line-height: 1.5rem;
+  min-width: 120px;
 }
 
 /* When logo is active */
+
 h1.has-logo {
-  background-size: auto 70%;
+  /* force a consistent title box size */
+  min-width: 220px;
+  height: 2rem;             /* matches your header min-height usage */
+  line-height: 2rem;
+  padding: 0 20px;
+
+  background-size: contain; /* ensure logo fully fits */
   background-repeat: no-repeat;
   background-position: center;
-  color: transparent;
-  text-indent: 0;
-  padding: 0 15px;
+  background-color: transparent !important;
+  color: transparent;       /* hide any residual text */
+  overflow: hidden;
+  white-space: nowrap;
   justify-content: center;
 }
+
 
 button {
   background: transparent; 
