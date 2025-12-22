@@ -63,7 +63,7 @@ let state = {
   searchQuery: ''
 };
 
-// --- PRELOAD AUDIO (NEW) ---
+// --- PRELOAD AUDIO ---
 let preloadAudio: HTMLAudioElement | null = null;
 let preloadedFileId: string | null = null;
 
@@ -145,6 +145,7 @@ const audio = document.getElementById('audio-engine') as HTMLAudioElement;
 audio.preload = 'auto';
 (audio as any).playsInline = true;
 
+// hidden preloader
 preloadAudio = new Audio();
 preloadAudio.preload = 'auto';
 (preloadAudio as any).playsInline = true;
@@ -429,7 +430,10 @@ function updateLyricsPanel(lyrics: { plain: string | null, synced: LyricLine[] |
     state.currentLyricIndex = -1;
     
     const htmlContent = lyrics.synced.map((line, index) => {
-      const escaped = line.text.replace(/&/g, '&amp;').replace(/<//g, '&lt;').replace(/>/g, '&gt;');
+      const escaped = line.text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
       return `<p class="lyric-line" data-index="${index}" data-time="${line.time}">${escaped}</p>`;
     }).join('');
     
@@ -444,7 +448,10 @@ function updateLyricsPanel(lyrics: { plain: string | null, synced: LyricLine[] |
       if (trimmed === '') {
         return '<p><br></p>';
       }
-      const escaped = trimmed.replace(/&/g, '&amp;').replace(/<//g, '&lt;').replace(/>/g, '&gt;');
+      const escaped = trimmed
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
       return `<p>${escaped}</p>`;
     }).join('');
     lyricsContent.innerHTML = htmlContent;
@@ -460,7 +467,10 @@ function updateCurtainLyrics(lyrics: { plain: string | null, synced: LyricLine[]
   
   if (lyrics.synced && lyrics.synced.length > 0) {
     const htmlContent = lyrics.synced.map((line, index) => {
-      const escaped = line.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const escaped = line.text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
       return `<p class="lyric-line-curtain" data-index="${index}" data-time="${line.time}">${escaped}</p>`;
     }).join('');
     
@@ -472,7 +482,10 @@ function updateCurtainLyrics(lyrics: { plain: string | null, synced: LyricLine[]
       if (trimmed === '') {
         return '<p><br></p>';
       }
-      const escaped = trimmed.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const escaped = trimmed
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
       return `<p>${escaped}</p>`;
     }).join('');
     curtainContent.innerHTML = htmlContent;
@@ -494,29 +507,29 @@ function updateSyncedLyrics(currentTime: number) {
   }
   
   if (newIndex === state.currentLyricIndex) return;
-  
   state.currentLyricIndex = newIndex;
   
+  // Desktop album view
   const lyricsContent = document.querySelector('.lyrics-content');
   if (lyricsContent) {
     const lines = lyricsContent.querySelectorAll('.lyric-line');
     lines.forEach((line, index) => {
       if (index === newIndex) {
         line.classList.add('active');
-        line.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        (line as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
       } else {
         line.classList.remove('active');
       }
     });
   }
   
+  // Curtain (mobile + desktop)
   const curtainContent = document.querySelector('.lyrics-curtain-content');
-  if (curtainContent && state.lyricsCurtainOpen) {
+  if (curtainContent) {
     const curtainLines = curtainContent.querySelectorAll('.lyric-line-curtain');
     curtainLines.forEach((line, index) => {
       if (index === newIndex) {
         line.classList.add('active');
-        line.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
       } else {
         line.classList.remove('active');
       }
@@ -979,7 +992,7 @@ function renderTrackList() {
   }
 }
 
-// --- PRELOAD HELPERS (NEW) ---
+// --- PRELOAD HELPERS ---
 function schedulePreloadNext() {
   if (!preloadAudio || !state.playlist.length) return;
   if (!audio.duration || !isFinite(audio.duration)) return;
@@ -1021,7 +1034,7 @@ async function preloadTrack(file: DriveFile) {
   }
 }
 
-// --- PLAYER ENGINE WITH PRELOAD ---
+// --- PLAYER ENGINE ---
 async function play(index: number, retryCount = 0) {
   if (state.isLoadingTrack) {
       return;
@@ -1063,7 +1076,6 @@ async function play(index: number, retryCount = 0) {
       state.blobUrl = null; 
   }
 
-  // try to use preloaded audio first
   const canUsePreloaded = preloadAudio && preloadedFileId === file.id;
   try {
       if (canUsePreloaded && preloadAudio) {
@@ -1106,21 +1118,31 @@ async function play(index: number, retryCount = 0) {
       
       loadLyrics(file.name).then(lyrics => {
         state.currentTrackLyrics = lyrics;
+
+        // set currentLyrics for synced flow
+        if (lyrics.synced && lyrics.synced.length > 0) {
+          state.currentLyrics = lyrics.synced;
+          state.currentLyricIndex = -1;
+        } else {
+          state.currentLyrics = [];
+          state.currentLyricIndex = -1;
+        }
         
+        // desktop lyrics panel
         const lyricsContent = document.querySelector('.lyrics-content');
         if (lyricsContent) {
           updateLyricsPanel(lyrics);
         }
         
-        if (state.lyricsCurtainOpen) {
-          updateCurtainLyrics(lyrics);
-        }
+        // always update curtain (mobile + desktop)
+        updateCurtainLyrics(lyrics);
       }).catch(err => {
         console.error('Failed to load lyrics:', err);
         state.currentTrackLyrics = { plain: null, synced: null };
+        state.currentLyrics = [];
+        state.currentLyricIndex = -1;
       });
 
-      // schedule preload for next track
       schedulePreloadNext();
       
   } catch (err: any) {
