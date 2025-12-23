@@ -26,6 +26,9 @@ interface AlbumColors {
 
 interface LyricLine { time: number; text: string; }
 
+// GLOBAL VARS (Moved here to fix scope errors)
+let progressInterval: number | null = null;
+
 let state = {
   token: sessionStorage.getItem('g_token'),
   rootId: null as string | null,
@@ -732,7 +735,6 @@ async function preloadNextTrack(nextIndex: number) {
   if (nextIndex >= state.playlist.length) return;
   const nextFile = state.playlist[nextIndex];
   
-  // If already loaded/loading this specific file, skip
   if (state.nextBlobId === nextFile.id) return;
   if (state.isPreloading) return;
 
@@ -749,7 +751,6 @@ async function preloadNextTrack(nextIndex: number) {
     const blob = await response.blob();
     const blobUrl = URL.createObjectURL(blob);
     
-    // Store in "Next Slot"
     state.nextBlobId = nextFile.id;
     state.nextBlobUrl = blobUrl;
     
@@ -782,10 +783,7 @@ async function play(index: number, retryCount = 0) {
   const coverId = state.currentAlbum && state.covers[state.currentAlbum.id];
   if (coverId) loadSecureImage(pArt, coverId); else pArt.src = FALLBACK_COVER;
 
-  // Cleanup old sound
   if (state.currentSound) { state.currentSound.unload(); state.currentSound = null; }
-  
-  // Cleanup old currentBlobUrl
   if (state.currentBlobUrl) { URL.revokeObjectURL(state.currentBlobUrl); state.currentBlobUrl = null; }
 
   // 1. CHECK IF PRELOADED
@@ -794,7 +792,6 @@ async function play(index: number, retryCount = 0) {
   if (state.nextBlobId === file.id && state.nextBlobUrl) {
     console.log("Playing from Preload Cache!");
     blobUrl = state.nextBlobUrl;
-    // Clear next slot (it is now current)
     state.nextBlobId = null;
     state.nextBlobUrl = null;
   } 
@@ -810,8 +807,7 @@ async function play(index: number, retryCount = 0) {
         blobUrl = URL.createObjectURL(blob);
       }
 
-      state.currentBlobUrl = blobUrl; // Set as current
-      
+      state.currentBlobUrl = blobUrl;
       const ext = file.name.split('.').pop()?.toLowerCase() || 'mp3';
       
       state.currentSound = new Howl({
@@ -849,7 +845,7 @@ async function play(index: number, retryCount = 0) {
         const lyricsContent = document.querySelector('.lyrics-content');
         if (lyricsContent) updateLyricsPanel(lyrics);
         updateCurtainLyrics(lyrics);
-      }).catch(err => {
+      }).catch(() => {
         state.currentTrackLyrics = { plain: null, synced: null };
         state.currentLyrics = []; state.currentLyricIndex = -1;
       });
@@ -887,7 +883,6 @@ function startProgressUpdate() {
         pBarFill.style.width = `${pct}%`;
         
         // --- SMART PRELOAD TRIGGER ---
-        // If past 50% and not yet preloaded next song
         if (seek > duration / 2 && !state.nextBlobId) {
            preloadNextTrack(state.currentIndex + 1);
         }
