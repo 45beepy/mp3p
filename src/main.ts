@@ -4,8 +4,8 @@ declare const gapi: any;
 declare const google: any;
 
 // --- CONFIG ---
-const API_KEY = 'AIzaSyD53qoAMqp4Wu9nHSyaBbCzUn1j0gYK5Cw';
-const CLIENT_ID = '957252189604-cfmbh7s2rjbpbql8rcsrlc3bpu6m2cq5.apps.googleusercontent.com';
+const API_KEY = import.meta.env.VITE_API_KEY;
+const CLIENT_ID = import.meta.env.VITE_CLIENT_ID;
 const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
 const MUSIC_FOLDER_NAME = 'mp3p_music'; 
 const FALLBACK_COVER = 'https://i.pinimg.com/1200x/4a/86/34/4a86344f69940e6b166c0bcbde36c3bc.jpg';
