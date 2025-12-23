@@ -26,7 +26,7 @@ interface AlbumColors {
 
 interface LyricLine { time: number; text: string; }
 
-// GLOBAL VARS (Moved here to fix scope errors)
+// GLOBAL VARS (Fixed: Moved to top level to solve TS2304)
 let progressInterval: number | null = null;
 
 let state = {
@@ -845,7 +845,7 @@ async function play(index: number, retryCount = 0) {
         const lyricsContent = document.querySelector('.lyrics-content');
         if (lyricsContent) updateLyricsPanel(lyrics);
         updateCurtainLyrics(lyrics);
-      }).catch(() => {
+      }).catch(() => { // Fixed unused 'err' here
         state.currentTrackLyrics = { plain: null, synced: null };
         state.currentLyrics = []; state.currentLyricIndex = -1;
       });
