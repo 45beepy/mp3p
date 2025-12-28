@@ -204,6 +204,8 @@ const btnLyricsToggle = document.getElementById('btn-lyrics-toggle')!;
 const pScrubber = document.getElementById('p-scrubber')!; 
 const pBarBg = document.getElementById('p-bar-bg')!;
 const pBarFill = document.getElementById('p-bar-fill')!;
+const playerBar = document.getElementById('player-bar')!;
+const pArtBox = document.querySelector('.p-art-box') as HTMLElement;
 
 const lyricsCurtain = document.getElementById('lyrics-curtain')!;
 
@@ -310,11 +312,17 @@ saveThemeBtn.onclick = async () => {
       });
     }
     delete state.albumColors[state.currentAlbum.id];
-    const updatedColors = await loadAlbumColors(state.currentAlbum.id);
-    if (updatedColors) {
-        applyAlbumTitleColors(state.currentAlbum.id);
-        applyGlobalTheme(updatedColors.line);
+    
+    // RELOAD and APPLY
+    await loadAlbumColors(state.currentAlbum.id);
+    
+    // Re-apply VIEW themes
+    updateViewTheme(state.currentAlbum.id);
+    // If this was the playing album, update player too
+    if (state.playingAlbumId === state.currentAlbum.id) {
+        updatePlayerTheme();
     }
+
     themeModal.classList.remove('open');
     saveThemeBtn.innerText = "SAVE";
     alert("Theme Updated!");
@@ -381,32 +389,75 @@ function parseSyncedLyrics(syncedText: string): LyricLine[] {
   return parsed;
 }
 
+// --- HELPER: MIME TYPE MAPPER ---
+function getMimeType(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case 'flac': return 'audio/flac';
+    case 'm4a': return 'audio/mp4'; 
+    case 'mp3': return 'audio/mpeg';
+    case 'wav': return 'audio/wav';
+    case 'ogg': return 'audio/ogg';
+    default: return 'audio/mpeg'; 
+  }
+}
+
 // --- LOADERS ---
 async function loadAlbumColors(albumId: string): Promise<AlbumColors | null> {
   if (state.albumColors[albumId]) return state.albumColors[albumId];
+
+  let text = '';
+  let fileId: string | undefined;
+
   try {
-    const res: any = await gapi.client.drive.files.list({ q: `name = 'colors.txt' and '${albumId}' in parents and trashed = false`, fields: "files(id)", pageSize: 1 });
-    if (!res.result.files || res.result.files.length === 0) return null;
-    const fileId = res.result.files[0].id;
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { 'Authorization': `Bearer ${state.token}` } });
-    if (!response.ok) return null;
-    
-    const text = await response.text();
-    const extract = (p: RegExp, d?: string) => { const m = text.match(p); return m ? m[1].trim() : d; };
-    
-    const colors: AlbumColors = {
+    const res: any = await gapi.client.drive.files.list({ 
+        q: `name = 'colors.txt' and '${albumId}' in parents and trashed = false`, 
+        fields: "files(id)", pageSize: 1 
+    });
+    if (res.result.files && res.result.files.length > 0) {
+        fileId = res.result.files[0].id;
+        const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { 
+            headers: { 'Authorization': `Bearer ${state.token}` } 
+        });
+        if (response.ok) text = await response.text();
+    }
+  } catch (e) { console.error(e); }
+
+  const extract = (p: RegExp, d?: string) => { 
+      const m = text.match(p); 
+      return m ? m[1].trim() : d; 
+  };
+
+  const colors: AlbumColors = {
       fileId: fileId,
-      font: extract(/font:\s*([#\w]+)/i, '#ffffff')!,
-      line: extract(/line:\s*([#\w]+)/i, '#ffff64')!,
-      titleBg: extract(/titleBg:\s*([#\w]+)/i, '#ffff64')!,
-      titleText: extract(/titleText:\s*([#\w]+)/i, '#000000')!,
-      logo: extract(/logo:\s*([^\r\n]+)/i)
-    };
-    
-    state.albumColors[albumId] = colors;
-    if (colors.logo) await loadAlbumLogo(albumId, colors.logo);
-    return colors;
-  } catch { return null; }
+      font: extract(/^font:\s*(.+)$/im, '#ffffff')!,
+      line: extract(/^line:\s*(.+)$/im, '#ffff64')!,
+      titleBg: extract(/^titleBg:\s*(.+)$/im, '#ffff64')!,
+      titleText: extract(/^titleText:\s*(.+)$/im, '#000000')!,
+      logo: extract(/^logo:\s*(.+)$/im)
+  };
+
+  if (!colors.logo) {
+      try {
+          const res: any = await gapi.client.drive.files.list({
+              q: `name = 'title-logo.png' and '${albumId}' in parents and trashed = false`,
+              fields: "files(id)", pageSize: 1
+          });
+          if (res.result.files && res.result.files.length > 0) {
+              colors.logo = 'title-logo.png';
+          }
+      } catch (e) {}
+  }
+
+  state.albumColors[albumId] = colors;
+  
+  if (!fileId && !colors.logo) {
+      delete state.albumColors[albumId];
+      return null;
+  }
+
+  if (colors.logo) await loadAlbumLogo(albumId, colors.logo);
+  return colors;
 }
 
 async function loadAlbumLogo(albumId: string, logoFilename: string): Promise<void> {
@@ -494,59 +545,94 @@ function updateSyncedLyrics(currentTime: number) {
   updateActive(document.querySelector('.lyrics-curtain-content'), 'lyric-line-curtain');
 }
 
-// --- THEMING ---
-function applyAlbumColors(albumId: string) {
-  const colors = state.albumColors[albumId];
-  document.querySelectorAll('.album-title.playing').forEach(el => {
-    const htmlEl = el as HTMLElement;
-    if (colors) { htmlEl.style.color = colors.font; htmlEl.style.borderBottomColor = colors.line; }
-    else { htmlEl.style.color = ''; htmlEl.style.borderBottomColor = ''; }
-  });
-}
+// --- NEW THEMING SYSTEM ---
 
-function applyAlbumTitleColors(albumId: string) {
-  const colors = state.albumColors[albumId];
-  const logoUrl = state.albumLogos[albumId];
+// 1. HEADER & GLOBAL ACCENTS (Controlled by the VIEWED Album or PLAYING album if on home)
+function updateViewTheme(targetAlbumId: string | null) {
+  // If targetAlbumId is null (Home), use playing album id
+  const effectiveId = targetAlbumId || state.playingAlbumId;
+  
+  if (!effectiveId) {
+      applyGlobalColors(null);
+      resetHeader(null);
+      return;
+  }
+
+  const colors = state.albumColors[effectiveId];
+  const albumName = state.albums.find(a => a.id === effectiveId)?.name || 'MP3P';
+
   if (colors) {
-    pageTitle.style.backgroundColor = colors.titleBg;
-    pageTitle.style.color = colors.titleText;
-    if (logoUrl) {
-      pageTitle.classList.add('has-logo');
-      pageTitle.style.backgroundImage = `url("${logoUrl}")`;
-      pageTitle.textContent = '';
-      pageTitle.setAttribute('aria-label', state.currentAlbum?.name || '');
-    } else {
-      pageTitle.classList.remove('has-logo');
-      pageTitle.style.backgroundImage = '';
-      pageTitle.textContent = state.currentAlbum?.name.toUpperCase() || 'MP3P';
-    }
-  } else resetTitleColors();
+      // Apply Global Colors (Back btn, borders, text selection)
+      applyGlobalColors(colors.line);
+      
+      // Apply Header
+      pageTitle.style.backgroundColor = colors.titleBg;
+      pageTitle.style.color = colors.titleText;
+      const logoUrl = state.albumLogos[effectiveId];
+      
+      if (logoUrl) {
+          pageTitle.classList.add('has-logo');
+          pageTitle.style.backgroundImage = `url("${logoUrl}")`;
+          pageTitle.textContent = '';
+          pageTitle.setAttribute('aria-label', albumName);
+      } else {
+          pageTitle.classList.remove('has-logo');
+          pageTitle.style.backgroundImage = '';
+          pageTitle.textContent = albumName.toUpperCase();
+      }
+  } else {
+      applyGlobalColors(null);
+      resetHeader(albumName);
+  }
 }
 
-function applyPlayButtonColors(albumId: string) {
-  const colors = state.albumColors[albumId];
-  if (!colors || !colors.line) { resetPlayButtonColors(); return; }
+// 2. PLAYER BAR THEME (Controlled ALWAYS by the PLAYING album)
+function updatePlayerTheme() {
+  if (!state.playingAlbumId) {
+      resetPlayerBar();
+      return;
+  }
+  
+  const colors = state.albumColors[state.playingAlbumId];
+  if (!colors) {
+      resetPlayerBar();
+      return;
+  }
+
+  // Force override styles for player components
+  playerBar.style.borderTopColor = colors.line;
+  pBarFill.style.backgroundColor = colors.line;
+  pArtist.style.color = colors.line;
   btnPlay.style.backgroundColor = colors.line;
   btnPlay.style.borderColor = colors.line;
-  btnPlay.style.color = (colors.titleText || '#000');
+  btnPlay.style.color = colors.titleText || '#000';
+  pArtBox.style.backgroundColor = colors.line;
+  
+  // Also colorize the scrubber handle if possible (requires adding a style rule or separate element)
+  // For now, these are the main elements.
 }
 
-function applyGlobalTheme(lineColor: string | null) {
+function applyGlobalColors(lineColor: string | null) {
   if (lineColor) document.documentElement.style.setProperty('--yellow', lineColor);
   else document.documentElement.style.removeProperty('--yellow');
 }
 
-function resetTitleColors() {
+function resetHeader(title: string | null) {
   pageTitle.classList.remove('has-logo');
   pageTitle.style.backgroundColor = '';
   pageTitle.style.color = '';
   pageTitle.style.backgroundImage = '';
+  pageTitle.textContent = title ? title.toUpperCase() : 'MP3P';
 }
 
-function resetPlayButtonColors() {
+function resetPlayerBar() {
+  playerBar.style.borderTopColor = '';
+  pBarFill.style.backgroundColor = '';
+  pArtist.style.color = '';
   btnPlay.style.backgroundColor = '';
   btnPlay.style.borderColor = '';
   btnPlay.style.color = '';
+  pArtBox.style.backgroundColor = '';
 }
 
 // --- DURATION LOADER ---
@@ -563,12 +649,8 @@ async function loadTrackDuration(fileId: string, index: number, filename: string
       if (!response.ok) return;
       
       let blob = await response.blob();
-      
-      // FIX: Force MIME type for M4A duration check
-      const ext = filename.split('.').pop()?.toLowerCase() || 'mp3';
-      if (ext === 'm4a') {
-          blob = blob.slice(0, blob.size, 'audio/mp4');
-      }
+      const mime = getMimeType(filename);
+      if (mime === 'audio/mp4') blob = blob.slice(0, blob.size, mime);
       
       const blobUrl = URL.createObjectURL(blob);
       const tempAudio = new Audio(blobUrl);
@@ -626,7 +708,7 @@ function initGis() {
   document.getElementById('auth-btn')!.onclick = () => tokenClient.requestAccessToken({ prompt: '' });
   backBtn.onclick = () => {
     searchContainer.style.display = 'none'; state.searchQuery = ''; searchInput.value = '';
-    resetTitleColors(); showAlbums();
+    showAlbums(); 
   };
 }
 
@@ -672,16 +754,22 @@ async function syncLibrary() {
     
     state.covers = {};
     allCovers.forEach((f: any) => { if(f.parents?.[0]) state.covers[f.parents[0]] = f.id; });
+    
+    // PRELOAD COLORS FOR HOME SCREEN
+    // This ensures home screen reflects playing album properly on refresh/load
+    if (state.playingAlbumId) await loadAlbumColors(state.playingAlbumId);
+    
     showAlbums();
   } catch { mainView.innerHTML = `<div style="text-align:center; padding:50px; color:var(--yellow);">CONNECTION FAILED<br>TRY RESET</div>`; }
 }
 
 // --- VIEWS ---
-function showAlbums() {
-  applyGlobalTheme(null);
+async function showAlbums() {
   backBtn.style.display = 'none'; editThemeBtn.style.display = 'none';
   mainHeader.classList.remove('album-mode');
-  pageTitle.innerText = "MP3P";
+
+  // UPDATE VIEW THEME FOR HOME (Pass null)
+  updateViewTheme(null);
   
   if(state.albums.length === 0) { mainView.innerHTML = `<div style="text-align:center; padding:50px; color:#666;">NO ALBUMS FOUND</div>`; return; }
 
@@ -696,9 +784,8 @@ function showAlbums() {
     const card = document.createElement('div');
     card.className = 'album-card';
     const titleClass = (album.id === state.playingAlbumId) ? 'album-title playing' : 'album-title';
-    const titleStyle = (album.id === state.playingAlbumId) ? 'color: var(--yellow);' : 'color: #fff;';
     
-    card.innerHTML = `<img class="album-cover" src="${EMPTY_COVER}"><div class="${titleClass}" style="${titleStyle}">${album.name}</div>`;
+    card.innerHTML = `<img class="album-cover" src="${EMPTY_COVER}"><div class="${titleClass}">${album.name}</div>`;
     const img = card.querySelector('img') as HTMLImageElement;
     if (coverId) loadSecureImage(img, coverId); else img.src = FALLBACK_COVER;
     card.onclick = () => openAlbum(album);
@@ -707,19 +794,31 @@ function showAlbums() {
   
   mainView.innerHTML = '';
   mainView.appendChild(grid);
-  if (state.playingAlbumId) applyAlbumColors(state.playingAlbumId);
+  
+  // Highlight text
+  if (state.playingAlbumId) {
+      const colors = state.albumColors[state.playingAlbumId];
+      if (colors) {
+          document.querySelectorAll('.album-title.playing').forEach(el => {
+              const htmlEl = el as HTMLElement;
+              htmlEl.style.color = colors.font;
+              htmlEl.style.borderBottomColor = colors.line;
+          });
+      }
+  }
 }
 
 async function openAlbum(album: DriveFile) {
   state.currentAlbum = album;
   backBtn.style.display = 'flex'; editThemeBtn.style.display = 'flex';
   mainHeader.classList.add('album-mode');
-  pageTitle.innerText = album.name.toUpperCase();
   searchContainer.style.display = 'none';
   
-  const colors = await loadAlbumColors(album.id);
-  if (colors) { applyAlbumTitleColors(album.id); applyGlobalTheme(colors.line); }
-  else { resetTitleColors(); applyGlobalTheme(null); }
+  // LOAD COLORS FIRST
+  await loadAlbumColors(album.id);
+  
+  // UPDATE VIEW THEME (Pass album ID)
+  updateViewTheme(album.id);
   
   if (state.trackCache[album.id]) { state.tracks = state.trackCache[album.id]; renderTrackList(); return; }
 
@@ -770,8 +869,6 @@ function renderTrackList() {
     row.innerHTML = `<div class="track-left"><div class="track-num">${index + 1}</div><div class="track-info"><div class="track-name">${cleanName}</div></div></div><div class="track-right"><span class="track-tech tech-ext">${ext}</span><span class="track-tech track-duration" data-index="${index}">${cachedDuration}</span></div>`;
     row.onclick = () => play(index);
     listContainer.appendChild(row);
-    
-    // UPDATED: Pass file.name to loader
     if (!state.durationCache[file.id]) loadTrackDuration(file.id, index, file.name);
   });
 }
@@ -795,15 +892,10 @@ async function preloadNextTrack(nextIndex: number) {
     if (!response.ok) throw new Error('Preload fetch failed');
     
     let blob = await response.blob();
-    
-    // FIX: Force MIME type for m4a here too
-    const extRaw = nextFile.name.split('.').pop()?.toLowerCase() || 'mp3';
-    if (extRaw === 'm4a') {
-       blob = blob.slice(0, blob.size, 'audio/mp4');
-    }
+    const mime = getMimeType(nextFile.name);
+    if (mime === 'audio/mp4') blob = blob.slice(0, blob.size, mime);
     
     const blobUrl = URL.createObjectURL(blob);
-    
     state.nextBlobId = nextFile.id;
     state.nextBlobUrl = blobUrl;
     
@@ -826,10 +918,15 @@ async function play(index: number, retryCount = 0) {
   
   if (state.currentAlbum) {
       state.playingAlbumId = state.currentAlbum.id;
-      const colors = await loadAlbumColors(state.currentAlbum.id);
-      if (colors) applyPlayButtonColors(state.currentAlbum.id); else resetPlayButtonColors();
+      // Load colors ensures Player Bar gets updated correctly
+      await loadAlbumColors(state.currentAlbum.id);
+      
+      // Update Player Bar Theme (Separated from View Theme)
+      updatePlayerTheme();
+      
       if (backBtn.style.display === 'none') showAlbums();
   }
+  
   renderTrackList();
   pTitle.innerText = "LOADING...";
   pArtist.innerText = state.currentAlbum ? state.currentAlbum.name.toUpperCase() : "UNKNOWN"; 
@@ -839,9 +936,7 @@ async function play(index: number, retryCount = 0) {
   if (state.currentSound) { state.currentSound.unload(); state.currentSound = null; }
   if (state.currentBlobUrl) { URL.revokeObjectURL(state.currentBlobUrl); state.currentBlobUrl = null; }
 
-  // 1. CHECK IF PRELOADED
   let blobUrl: string | null = null;
-  
   if (state.nextBlobId === file.id && state.nextBlobUrl) {
     console.log("Playing from Preload Cache!");
     blobUrl = state.nextBlobUrl;
@@ -852,33 +947,22 @@ async function play(index: number, retryCount = 0) {
   const extRaw = file.name.split('.').pop()?.toLowerCase() || 'mp3';
 
   try {
-      // 2. IF NOT PRELOADED, FETCH NOW
       if (!blobUrl) {
         const response = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
             headers: { 'Authorization': `Bearer ${state.token}`, 'Accept': 'audio/*' }
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        
         let blob = await response.blob();
-        
-        // FIX: FORCE MIME TYPE FOR M4A
-        if (extRaw === 'm4a') {
-            console.log("Forcing audio/mp4 MIME type for m4a file");
-            blob = blob.slice(0, blob.size, 'audio/mp4');
-        }
-        
+        const mime = getMimeType(file.name);
+        blob = blob.slice(0, blob.size, mime);
         blobUrl = URL.createObjectURL(blob);
       }
 
       state.currentBlobUrl = blobUrl;
-      
-      // FIX: Use Web Audio (html5: false) for M4A to bypass strict MIME checks
-      const useHtml5 = extRaw !== 'm4a';
+      const useHtml5 = (extRaw !== 'm4a');
       
       state.currentSound = new Howl({
-        src: [blobUrl], 
-        format: [extRaw === 'm4a' ? 'mp4' : extRaw], 
-        html5: useHtml5, 
+        src: [blobUrl], format: [extRaw === 'm4a' ? 'mp4' : extRaw], html5: useHtml5,
         onload: () => {
           state.isLoadingTrack = false;
           state.isPlaying = true;
@@ -904,7 +988,6 @@ async function play(index: number, retryCount = 0) {
       });
       state.currentSound.play();
       btnLyricsToggle.style.display = 'block';
-      
       loadLyrics(file.name).then(lyrics => {
         state.currentTrackLyrics = lyrics;
         if (lyrics.synced && lyrics.synced.length > 0) { state.currentLyrics = lyrics.synced; state.currentLyricIndex = -1; }
@@ -948,11 +1031,7 @@ function startProgressUpdate() {
       if (duration > 0) {
         const pct = (seek / duration) * 100;
         pBarFill.style.width = `${pct}%`;
-        
-        // --- SMART PRELOAD TRIGGER ---
-        if (seek > duration / 2 && !state.nextBlobId) {
-           preloadNextTrack(state.currentIndex + 1);
-        }
+        if (seek > duration / 2 && !state.nextBlobId) preloadNextTrack(state.currentIndex + 1);
       }
       updateSyncedLyrics(seek);
     }
