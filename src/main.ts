@@ -26,7 +26,7 @@ interface AlbumColors {
 
 interface LyricLine { time: number; text: string; }
 
-// GLOBAL VARS (Fixed: Moved to top level to solve TS2304)
+// GLOBAL VARS
 let progressInterval: number | null = null;
 
 let state = {
@@ -252,8 +252,41 @@ cancelThemeBtn.onclick = () => themeModal.classList.remove('open');
 saveThemeBtn.onclick = async () => {
   if (!state.currentAlbum) return;
   saveThemeBtn.innerText = "SAVING...";
-  const newColors = { font: inputFont.value, line: inputLine.value, titleBg: inputTitleBg.value, titleText: inputTitleText.value };
-  const fileContent = `font: ${newColors.font}\nline: ${newColors.line}\ntitleBg: ${newColors.titleBg}\ntitleText: ${newColors.titleText}`;
+  
+  const newColors = { 
+    font: inputFont.value, 
+    line: inputLine.value, 
+    titleBg: inputTitleBg.value, 
+    titleText: inputTitleText.value 
+  };
+
+  let logoLine = '';
+  
+  try {
+    const res: any = await gapi.client.drive.files.list({
+        q: `name = 'title-logo.png' and '${state.currentAlbum.id}' in parents and trashed = false`,
+        pageSize: 1,
+        fields: 'files(id)'
+    });
+
+    if (res.result.files && res.result.files.length > 0) {
+        logoLine = 'logo: title-logo.png\n';
+    } else {
+        const currentConfig = state.albumColors[state.currentAlbum.id];
+        if (currentConfig && currentConfig.logo) {
+             logoLine = `logo: ${currentConfig.logo}\n`;
+        }
+    }
+  } catch (e) {
+    console.error("Logo check failed", e);
+    const currentConfig = state.albumColors[state.currentAlbum.id];
+    if (currentConfig && currentConfig.logo) {
+         logoLine = `logo: ${currentConfig.logo}\n`;
+    }
+  }
+
+  const fileContent = `${logoLine}font: ${newColors.font}\nline: ${newColors.line}\ntitleBg: ${newColors.titleBg}\ntitleText: ${newColors.titleText}`;
+  
   const existingColors = state.albumColors[state.currentAlbum.id];
   const fileId = existingColors?.fileId;
 
@@ -357,19 +390,22 @@ async function loadAlbumColors(albumId: string): Promise<AlbumColors | null> {
     const fileId = res.result.files[0].id;
     const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { 'Authorization': `Bearer ${state.token}` } });
     if (!response.ok) return null;
+    
     const text = await response.text();
-    const fontMatch = text.match(/font:\s*([#\w]+)/i);
-    const lineMatch = text.match(/line:\s*([#\w]+)/i);
-    const titleBgMatch = text.match(/titleBg:\s*([#\w]+)/i);
-    const titleTextMatch = text.match(/titleText:\s*([#\w]+)/i);
-    const logoMatch = text.match(/logo:\s*([^\r\n]+)/i);
-    if (fontMatch && lineMatch && titleBgMatch && titleTextMatch) {
-      const colors: AlbumColors = { fileId: fileId, font: fontMatch[1].trim(), line: lineMatch[1].trim(), titleBg: titleBgMatch[1].trim(), titleText: titleTextMatch[1].trim(), logo: logoMatch ? logoMatch[1].trim() : undefined };
-      state.albumColors[albumId] = colors;
-      if (colors.logo) await loadAlbumLogo(albumId, colors.logo);
-      return colors;
-    }
-    return null;
+    const extract = (p: RegExp, d?: string) => { const m = text.match(p); return m ? m[1].trim() : d; };
+    
+    const colors: AlbumColors = {
+      fileId: fileId,
+      font: extract(/font:\s*([#\w]+)/i, '#ffffff')!,
+      line: extract(/line:\s*([#\w]+)/i, '#ffff64')!,
+      titleBg: extract(/titleBg:\s*([#\w]+)/i, '#ffff64')!,
+      titleText: extract(/titleText:\s*([#\w]+)/i, '#000000')!,
+      logo: extract(/logo:\s*([^\r\n]+)/i)
+    };
+    
+    state.albumColors[albumId] = colors;
+    if (colors.logo) await loadAlbumLogo(albumId, colors.logo);
+    return colors;
   } catch { return null; }
 }
 
@@ -514,7 +550,7 @@ function resetPlayButtonColors() {
 }
 
 // --- DURATION LOADER ---
-async function loadTrackDuration(fileId: string, index: number) {
+async function loadTrackDuration(fileId: string, index: number, filename: string) {
   if (state.durationCache[fileId]) {
       const el = document.querySelector(`[data-index="${index}"]`);
       if (el) el.textContent = state.durationCache[fileId];
@@ -525,7 +561,15 @@ async function loadTrackDuration(fileId: string, index: number) {
           headers: { 'Authorization': `Bearer ${state.token}`, 'Range': 'bytes=0-204800' }
       });
       if (!response.ok) return;
-      const blob = await response.blob();
+      
+      let blob = await response.blob();
+      
+      // FIX: Force MIME type for M4A duration check
+      const ext = filename.split('.').pop()?.toLowerCase() || 'mp3';
+      if (ext === 'm4a') {
+          blob = blob.slice(0, blob.size, 'audio/mp4');
+      }
+      
       const blobUrl = URL.createObjectURL(blob);
       const tempAudio = new Audio(blobUrl);
       
@@ -726,7 +770,9 @@ function renderTrackList() {
     row.innerHTML = `<div class="track-left"><div class="track-num">${index + 1}</div><div class="track-info"><div class="track-name">${cleanName}</div></div></div><div class="track-right"><span class="track-tech tech-ext">${ext}</span><span class="track-tech track-duration" data-index="${index}">${cachedDuration}</span></div>`;
     row.onclick = () => play(index);
     listContainer.appendChild(row);
-    if (!state.durationCache[file.id]) loadTrackDuration(file.id, index);
+    
+    // UPDATED: Pass file.name to loader
+    if (!state.durationCache[file.id]) loadTrackDuration(file.id, index, file.name);
   });
 }
 
@@ -748,7 +794,14 @@ async function preloadNextTrack(nextIndex: number) {
     
     if (!response.ok) throw new Error('Preload fetch failed');
     
-    const blob = await response.blob();
+    let blob = await response.blob();
+    
+    // FIX: Force MIME type for m4a here too
+    const extRaw = nextFile.name.split('.').pop()?.toLowerCase() || 'mp3';
+    if (extRaw === 'm4a') {
+       blob = blob.slice(0, blob.size, 'audio/mp4');
+    }
+    
     const blobUrl = URL.createObjectURL(blob);
     
     state.nextBlobId = nextFile.id;
@@ -796,6 +849,8 @@ async function play(index: number, retryCount = 0) {
     state.nextBlobUrl = null;
   } 
   
+  const extRaw = file.name.split('.').pop()?.toLowerCase() || 'mp3';
+
   try {
       // 2. IF NOT PRELOADED, FETCH NOW
       if (!blobUrl) {
@@ -803,15 +858,27 @@ async function play(index: number, retryCount = 0) {
             headers: { 'Authorization': `Bearer ${state.token}`, 'Accept': 'audio/*' }
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const blob = await response.blob();
+        
+        let blob = await response.blob();
+        
+        // FIX: FORCE MIME TYPE FOR M4A
+        if (extRaw === 'm4a') {
+            console.log("Forcing audio/mp4 MIME type for m4a file");
+            blob = blob.slice(0, blob.size, 'audio/mp4');
+        }
+        
         blobUrl = URL.createObjectURL(blob);
       }
 
       state.currentBlobUrl = blobUrl;
-      const ext = file.name.split('.').pop()?.toLowerCase() || 'mp3';
+      
+      // FIX: Use Web Audio (html5: false) for M4A to bypass strict MIME checks
+      const useHtml5 = extRaw !== 'm4a';
       
       state.currentSound = new Howl({
-        src: [blobUrl], format: [ext], html5: true,
+        src: [blobUrl], 
+        format: [extRaw === 'm4a' ? 'mp4' : extRaw], 
+        html5: useHtml5, 
         onload: () => {
           state.isLoadingTrack = false;
           state.isPlaying = true;
@@ -845,7 +912,7 @@ async function play(index: number, retryCount = 0) {
         const lyricsContent = document.querySelector('.lyrics-content');
         if (lyricsContent) updateLyricsPanel(lyrics);
         updateCurtainLyrics(lyrics);
-      }).catch(() => { // Fixed unused 'err' here
+      }).catch(() => {
         state.currentTrackLyrics = { plain: null, synced: null };
         state.currentLyrics = []; state.currentLyricIndex = -1;
       });
