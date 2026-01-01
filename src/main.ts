@@ -154,15 +154,18 @@ app.innerHTML = `
     </div>
   </div>
 
-  <div id="lyrics-curtain" class="lyrics-curtain-mini">
+  <div id="lyrics-curtain" class="lyrics-curtain">
+    <div class="curtain-header-mobile">
+      <img id="curtain-art" class="curtain-art" src="${EMPTY_COVER}">
+      <div class="curtain-meta">
+        <div id="curtain-title" class="curtain-title">NOT PLAYING</div>
+        <div id="curtain-artist" class="curtain-artist">UNKNOWN</div>
+      </div>
+    </div>
     <div class="lyrics-curtain-content">
       <p class="lyrics-placeholder">No track playing</p>
     </div>
   </div>
-
-  <button class="lyrics-toggle-btn-mini" id="btn-lyrics-toggle" style="display:none;" title="Show/Hide Lyrics">
-    <span class="arrow-icon-mini">››</span>
-  </button>
 
   <div id="player-bar">
     <div class="p-art-box">
@@ -185,6 +188,14 @@ app.innerHTML = `
       <button class="ctrl-btn" id="btn-prev">⏮</button>
       <button class="ctrl-btn play-btn" id="btn-play">▶</button>
       <button class="ctrl-btn" id="btn-next">⏭</button>
+      <button class="lyrics-toggle-btn" id="btn-lyrics-toggle">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+          <line x1="12" y1="19" x2="12" y2="23"></line>
+          <line x1="8" y1="23" x2="16" y2="23"></line>
+        </svg>
+      </button>
     </div>
   </div>
 `;
@@ -208,6 +219,9 @@ const playerBar = document.getElementById('player-bar')!;
 const pArtBox = document.querySelector('.p-art-box') as HTMLElement;
 
 const lyricsCurtain = document.getElementById('lyrics-curtain')!;
+const curtainArt = document.getElementById('curtain-art') as HTMLImageElement;
+const curtainTitle = document.getElementById('curtain-title')!;
+const curtainArtist = document.getElementById('curtain-artist')!;
 
 const searchBtn = document.getElementById('search-btn')!;
 const searchContainer = document.getElementById('search-container')!;
@@ -233,6 +247,7 @@ setupColorInput(inputTitleBg, 'hex-titleBg');
 setupColorInput(inputFont, 'hex-font');
 
 pArt.onerror = () => { if (pArt.src !== FALLBACK_COVER) pArt.src = FALLBACK_COVER; };
+curtainArt.onerror = () => { if (curtainArt.src !== FALLBACK_COVER) curtainArt.src = FALLBACK_COVER; };
 
 // --- EDITOR LOGIC ---
 editThemeBtn.onclick = () => {
@@ -514,7 +529,7 @@ function updateCurtainLyrics(lyrics: { plain: string | null, synced: LyricLine[]
   const curtainContent = document.querySelector('.lyrics-curtain-content');
   if (!curtainContent) return;
   if (lyrics.synced && lyrics.synced.length > 0) {
-    curtainContent.innerHTML = lyrics.synced.map((line, index) => `<p class="lyric-line-curtain" data-index="${index}" data-time="${line.time}">${line.text.replace(/&/g, '&amp;')}</p>`).join('');
+    curtainContent.innerHTML = lyrics.synced.map((line, index) => `<p class="lyric-line-curtain" data-index="${index}" data-time="${line.time}">${line.text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`).join('');
   } else if (lyrics.plain) {
     curtainContent.innerHTML = lyrics.plain.split('\n').map(line => `<p>${line.trim() === '' ? '<br>' : line.replace(/&/g, '&amp;')}</p>`).join('');
   } else { curtainContent.innerHTML = '<p class="lyrics-placeholder">No lyrics available</p>'; }
@@ -533,7 +548,8 @@ function updateSyncedLyrics(currentTime: number) {
     lines.forEach((line, index) => {
       if (index === newIndex) {
         line.classList.add('active');
-        if (itemClass === 'lyric-line') (line as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        // FIX: Scroll active line for BOTH desktop and mobile
+        (line as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
       } else line.classList.remove('active');
     });
   };
@@ -541,8 +557,7 @@ function updateSyncedLyrics(currentTime: number) {
   updateActive(document.querySelector('.lyrics-curtain-content'), 'lyric-line-curtain');
 }
 
-// --- NEW THEMING SYSTEM ---
-
+// --- THEMING SYSTEM ---
 function updateViewTheme(targetAlbumId: string | null) {
   const effectiveId = targetAlbumId || state.playingAlbumId;
   
@@ -593,6 +608,14 @@ function updatePlayerTheme() {
   btnPlay.style.borderColor = colors.line;
   btnPlay.style.color = colors.titleText || '#000';
   pArtBox.style.backgroundColor = colors.line;
+  
+  // COLORIZE MOBILE LYRICS BTN
+  btnLyricsToggle.style.borderColor = colors.line;
+  btnLyricsToggle.style.color = colors.line;
+  
+  // COLORIZE MOBILE CURTAIN ARTIST TEXT
+  curtainArtist.style.color = colors.line;
+  curtainTitle.style.color = colors.font;
 }
 
 function applyGlobalColors(lineColor: string | null) {
@@ -616,6 +639,8 @@ function resetPlayerBar() {
   btnPlay.style.borderColor = '';
   btnPlay.style.color = '';
   pArtBox.style.backgroundColor = '';
+  btnLyricsToggle.style.borderColor = '';
+  btnLyricsToggle.style.color = '';
 }
 
 // --- DURATION LOADER ---
@@ -690,7 +715,10 @@ function initGis() {
   });
   const syncAction = () => tokenClient.requestAccessToken({ prompt: '' });
   document.getElementById('auth-btn')!.onclick = syncAction;
+  
+  // Use Logo/Title as Sync trigger
   document.getElementById('page-title')!.onclick = syncAction;
+  
   backBtn.onclick = () => {
     searchContainer.style.display = 'none'; state.searchQuery = ''; searchInput.value = '';
     showAlbums(); 
@@ -899,16 +927,29 @@ async function play(index: number, retryCount = 0) {
       updatePlayerTheme();
       
       if (backBtn.style.display === 'none') {
-          // If we are on Home, update view to reflect playing album theme
           updateViewTheme(state.currentAlbum.id);
       }
   }
   
   renderTrackList();
+  
+  // UPDATE NOW PLAYING INFO
+  const { cleanName } = parseTrackName(file.name);
   pTitle.innerText = "LOADING...";
-  pArtist.innerText = state.currentAlbum ? state.currentAlbum.name.toUpperCase() : "UNKNOWN"; 
+  const artistName = state.currentAlbum ? state.currentAlbum.name.toUpperCase() : "UNKNOWN";
+  pArtist.innerText = artistName;
+  
+  curtainTitle.innerText = cleanName.toUpperCase();
+  curtainArtist.innerText = artistName;
+  
   const coverId = state.currentAlbum && state.covers[state.currentAlbum.id];
-  if (coverId) loadSecureImage(pArt, coverId); else pArt.src = FALLBACK_COVER;
+  if (coverId) {
+      loadSecureImage(pArt, coverId);
+      loadSecureImage(curtainArt, coverId);
+  } else {
+      pArt.src = FALLBACK_COVER;
+      curtainArt.src = FALLBACK_COVER;
+  }
 
   if (state.currentSound) { state.currentSound.unload(); state.currentSound = null; }
   if (state.currentBlobUrl) { URL.revokeObjectURL(state.currentBlobUrl); state.currentBlobUrl = null; }
@@ -944,7 +985,6 @@ async function play(index: number, retryCount = 0) {
           state.isLoadingTrack = false;
           state.isPlaying = true;
           updatePlayBtn();
-          const { cleanName } = parseTrackName(file.name);
           pTitle.innerText = cleanName.toUpperCase();
           startProgressUpdate();
         },
@@ -964,7 +1004,7 @@ async function play(index: number, retryCount = 0) {
         }
       });
       state.currentSound.play();
-      btnLyricsToggle.style.display = 'block';
+      btnLyricsToggle.style.display = 'flex'; // Show lyrics btn
       loadLyrics(file.name).then(lyrics => {
         state.currentTrackLyrics = lyrics;
         if (lyrics.synced && lyrics.synced.length > 0) { state.currentLyrics = lyrics.synced; state.currentLyricIndex = -1; }
@@ -986,7 +1026,6 @@ async function play(index: number, retryCount = 0) {
   }
 
   if ('mediaSession' in navigator) {
-      const { cleanName } = parseTrackName(file.name);
       (navigator as any).mediaSession.metadata = new (window as any).MediaMetadata({
           title: cleanName, artist: state.currentAlbum?.name || 'Unknown',
           artwork: [{ src: pArt.src, sizes: '512x512', type: 'image/jpeg' }]
