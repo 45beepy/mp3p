@@ -39,7 +39,7 @@ header {
 .header-left {
   display: flex; 
   align-items: center; 
-  gap: 15px; /* Default Desktop Gap */
+  gap: 15px; 
   overflow: hidden; 
   min-width: 0;
 }
@@ -106,6 +106,7 @@ h1 {
   min-height: 2rem;
   line-height: 1.5rem;
   min-width: 120px;
+  cursor: pointer; /* Clickable */
 }
 
 h1.has-logo {
@@ -135,7 +136,7 @@ button {
   cursor: pointer; 
   transition: all 0.1s; 
   flex-shrink: 0;
-  display: flex; /* Ensures icons align nicely */
+  display: flex;
   align-items: center;
   justify-content: center;
 }
@@ -147,7 +148,7 @@ button.secondary { border-color: var(--gray); color: var(--gray); margin-right: 
 #search-btn svg { display: block; }
 
 /* --- RESPONSIVE BACK BUTTON LOGIC --- */
-.m-text { display: none; } /* Hide arrow on desktop */
+.m-text { display: none; } 
 
 /* MOBILE HEADER ADJUSTMENTS */
 @media (max-width: 768px) {
@@ -161,9 +162,27 @@ button.secondary { border-color: var(--gray); color: var(--gray); margin-right: 
   .header-left {
     grid-column: 1;
     grid-row: 1;
-    /* REDUCED GAP FOR MOBILE */
-    gap: 8px; 
+    gap: 8px;
+    
+    /* CENTER LOGO LOGIC */
+    width: 100%;
+    justify-content: center;
+    position: relative; 
   }
+
+  /* ABSOLUTE POSITION BACK BTN TO KEEP LOGO CENTERED */
+  #back-btn {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 8px 8px; 
+    min-width: 32px;
+    z-index: 10;
+  }
+
+  /* HIDE SYNC BUTTON ON MOBILE */
+  #auth-btn { display: none !important; }
 
   .header-center {
     grid-column: 1;
@@ -180,15 +199,8 @@ button.secondary { border-color: var(--gray); color: var(--gray); margin-right: 
 
   header.album-mode .header-right { display: none !important; }
 
-  /* SWAP BACK TEXT FOR ARROW */
   .d-text { display: none; }
   .m-text { display: block; line-height: 0; }
-  
-  /* Make the back button square-ish on mobile */
-  #back-btn {
-    padding: 8px 8px; 
-    min-width: 32px;
-  }
 }
 
 /* --- GRID & CARD --- */
@@ -309,70 +321,6 @@ button.secondary { border-color: var(--gray); color: var(--gray); margin-right: 
 #main-view { position: fixed; top: 70px; left: 0; right: 0; bottom: 90px; overflow-y: auto; overflow-x: hidden; }
 
 /* --- THEME EDITOR MODAL --- */
-.modal-overlay {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.85);
-  display: none;
-  justify-content: center; align-items: center;
-  z-index: 500;
-  backdrop-filter: blur(5px);
-}
-.modal-overlay.open { display: flex; }
-
-.modal {
-  background: #000;
-  border: 2px solid var(--yellow);
-  padding: 25px;
-  width: 90%; max-width: 350px;
-  display: flex; flex-direction: column; gap: 20px;
-  box-shadow: 0 0 30px rgba(0,0,0,0.8);
-}
-
-.modal h3 {
-  margin: 0; color: var(--yellow); text-transform: uppercase;
-  text-align: center; border-bottom: 1px solid #333; padding-bottom: 15px;
-}
-
-.color-group { display: flex; flex-direction: column; gap: 12px; }
-
-.color-row {
-  display: flex; justify-content: space-between; align-items: center;
-  color: #fff; font-size: 0.9rem; font-weight: 700; text-transform: uppercase;
-}
-
-.color-picker-wrapper {
-  display: flex; align-items: center; gap: 10px;
-}
-
-input[type="color"] {
-  background: none; border: 1px solid #333;
-  width: 40px; height: 30px; padding: 0; cursor: pointer;
-}
-
-.hex-preview {
-  font-family: monospace; color: #666; font-size: 0.8rem;
-}
-
-.modal-actions { display: flex; gap: 15px; margin-top: 10px; }
-
-.modal-btn {
-  flex: 1; padding: 12px;
-  border: 1px solid var(--yellow);
-  background: transparent; color: var(--yellow);
-  font-weight: 900; cursor: pointer; text-transform: uppercase;
-}
-.modal-btn:hover { background: var(--yellow); color: #000; }
-
-.modal-btn.cancel { border-color: #444; color: #888; }
-.modal-btn.cancel:hover { background: #222; color: #fff; }
-
-/* Edit Button in Header */
-#edit-theme-btn {
-  border-color: #444; color: #888;
-}
-#edit-theme-btn:hover {
-  border-color: var(--yellow); color: var(--yellow);
-}/* --- THEME EDITOR MODAL --- */
 .modal-overlay {
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.85);

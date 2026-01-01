@@ -312,17 +312,13 @@ saveThemeBtn.onclick = async () => {
       });
     }
     delete state.albumColors[state.currentAlbum.id];
-    
-    // RELOAD and APPLY
-    await loadAlbumColors(state.currentAlbum.id);
-    
-    // Re-apply VIEW themes
-    updateViewTheme(state.currentAlbum.id);
-    // If this was the playing album, update player too
-    if (state.playingAlbumId === state.currentAlbum.id) {
-        updatePlayerTheme();
+    const updatedColors = await loadAlbumColors(state.currentAlbum.id);
+    if (updatedColors) {
+        applyAlbumTitleColors(state.currentAlbum.id);
+        if (state.playingAlbumId === state.currentAlbum.id || !state.playingAlbumId) {
+             applyGlobalTheme(updatedColors.line);
+        }
     }
-
     themeModal.classList.remove('open');
     saveThemeBtn.innerText = "SAVE";
     alert("Theme Updated!");
@@ -547,9 +543,7 @@ function updateSyncedLyrics(currentTime: number) {
 
 // --- NEW THEMING SYSTEM ---
 
-// 1. HEADER & GLOBAL ACCENTS (Controlled by the VIEWED Album or PLAYING album if on home)
 function updateViewTheme(targetAlbumId: string | null) {
-  // If targetAlbumId is null (Home), use playing album id
   const effectiveId = targetAlbumId || state.playingAlbumId;
   
   if (!effectiveId) {
@@ -562,14 +556,10 @@ function updateViewTheme(targetAlbumId: string | null) {
   const albumName = state.albums.find(a => a.id === effectiveId)?.name || 'MP3P';
 
   if (colors) {
-      // Apply Global Colors (Back btn, borders, text selection)
       applyGlobalColors(colors.line);
-      
-      // Apply Header
       pageTitle.style.backgroundColor = colors.titleBg;
       pageTitle.style.color = colors.titleText;
       const logoUrl = state.albumLogos[effectiveId];
-      
       if (logoUrl) {
           pageTitle.classList.add('has-logo');
           pageTitle.style.backgroundImage = `url("${logoUrl}")`;
@@ -586,20 +576,16 @@ function updateViewTheme(targetAlbumId: string | null) {
   }
 }
 
-// 2. PLAYER BAR THEME (Controlled ALWAYS by the PLAYING album)
 function updatePlayerTheme() {
   if (!state.playingAlbumId) {
       resetPlayerBar();
       return;
   }
-  
   const colors = state.albumColors[state.playingAlbumId];
   if (!colors) {
       resetPlayerBar();
       return;
   }
-
-  // Force override styles for player components
   playerBar.style.borderTopColor = colors.line;
   pBarFill.style.backgroundColor = colors.line;
   pArtist.style.color = colors.line;
@@ -607,9 +593,6 @@ function updatePlayerTheme() {
   btnPlay.style.borderColor = colors.line;
   btnPlay.style.color = colors.titleText || '#000';
   pArtBox.style.backgroundColor = colors.line;
-  
-  // Also colorize the scrubber handle if possible (requires adding a style rule or separate element)
-  // For now, these are the main elements.
 }
 
 function applyGlobalColors(lineColor: string | null) {
@@ -705,7 +688,9 @@ function initGis() {
       syncLibrary();
     },
   });
-  document.getElementById('auth-btn')!.onclick = () => tokenClient.requestAccessToken({ prompt: '' });
+  const syncAction = () => tokenClient.requestAccessToken({ prompt: '' });
+  document.getElementById('auth-btn')!.onclick = syncAction;
+  document.getElementById('page-title')!.onclick = syncAction;
   backBtn.onclick = () => {
     searchContainer.style.display = 'none'; state.searchQuery = ''; searchInput.value = '';
     showAlbums(); 
@@ -755,10 +740,7 @@ async function syncLibrary() {
     state.covers = {};
     allCovers.forEach((f: any) => { if(f.parents?.[0]) state.covers[f.parents[0]] = f.id; });
     
-    // PRELOAD COLORS FOR HOME SCREEN
-    // This ensures home screen reflects playing album properly on refresh/load
     if (state.playingAlbumId) await loadAlbumColors(state.playingAlbumId);
-    
     showAlbums();
   } catch { mainView.innerHTML = `<div style="text-align:center; padding:50px; color:var(--yellow);">CONNECTION FAILED<br>TRY RESET</div>`; }
 }
@@ -768,7 +750,6 @@ async function showAlbums() {
   backBtn.style.display = 'none'; editThemeBtn.style.display = 'none';
   mainHeader.classList.remove('album-mode');
 
-  // UPDATE VIEW THEME FOR HOME (Pass null)
   updateViewTheme(null);
   
   if(state.albums.length === 0) { mainView.innerHTML = `<div style="text-align:center; padding:50px; color:#666;">NO ALBUMS FOUND</div>`; return; }
@@ -795,7 +776,6 @@ async function showAlbums() {
   mainView.innerHTML = '';
   mainView.appendChild(grid);
   
-  // Highlight text
   if (state.playingAlbumId) {
       const colors = state.albumColors[state.playingAlbumId];
       if (colors) {
@@ -814,10 +794,7 @@ async function openAlbum(album: DriveFile) {
   mainHeader.classList.add('album-mode');
   searchContainer.style.display = 'none';
   
-  // LOAD COLORS FIRST
   await loadAlbumColors(album.id);
-  
-  // UPDATE VIEW THEME (Pass album ID)
   updateViewTheme(album.id);
   
   if (state.trackCache[album.id]) { state.tracks = state.trackCache[album.id]; renderTrackList(); return; }
@@ -918,13 +895,13 @@ async function play(index: number, retryCount = 0) {
   
   if (state.currentAlbum) {
       state.playingAlbumId = state.currentAlbum.id;
-      // Load colors ensures Player Bar gets updated correctly
       await loadAlbumColors(state.currentAlbum.id);
-      
-      // Update Player Bar Theme (Separated from View Theme)
       updatePlayerTheme();
       
-      if (backBtn.style.display === 'none') showAlbums();
+      if (backBtn.style.display === 'none') {
+          // If we are on Home, update view to reflect playing album theme
+          updateViewTheme(state.currentAlbum.id);
+      }
   }
   
   renderTrackList();
