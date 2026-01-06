@@ -257,7 +257,6 @@ const pageTitle = document.getElementById('page-title')!;
 
 const pTitle = document.getElementById('p-title')!;
 const pArtist = document.getElementById('p-artist')!;
-const pAlbumName = document.getElementById('p-album') as HTMLDivElement;
 const pArt = document.getElementById('p-art') as HTMLImageElement;
 const btnPlay = document.getElementById('btn-play')!;
 const btnNext = document.getElementById('btn-next')!;
@@ -273,7 +272,6 @@ const lyricsCurtain = document.getElementById('lyrics-curtain')!;
 const curtainArt = document.getElementById('curtain-art') as HTMLImageElement;
 const curtainTitle = document.getElementById('curtain-title')!;
 const curtainArtist = document.getElementById('curtain-artist')!;
-const curtainAlbum = document.getElementById('curtain-album')!;
 
 const searchBtn = document.getElementById('search-btn')!;
 const searchContainer = document.getElementById('search-container')!;
