@@ -1,5 +1,7 @@
 import './style.css'
 import { Howl } from 'howler'
+// @ts-ignore
+import * as jsmediatags from 'jsmediatags/dist/jsmediatags.min.js';
 
 declare const gapi: any;
 declare const google: any;
@@ -73,6 +75,54 @@ let state = {
   currentSound: null as Howl | null,
   currentBlobUrl: null as string | null
 };
+
+// --- HELPER: PARSE ARTIST & FEATURES ---
+function parseArtistAndFeatures(artistString: string): { mainArtist: string, features: string | null } {
+  if (!artistString) return { mainArtist: '', features: null };
+  
+  const featPatterns = [
+    /\s+feat\.?\s+/i,
+    /\s+ft\.?\s+/i,
+    /\s+featuring\s+/i,
+    /\s+\(feat\.?\s+/i,
+    /\s+\(ft\.?\s+/i,
+    /\s+\[feat\.?\s+/i
+  ];
+  
+  for (const pattern of featPatterns) {
+    if (pattern.test(artistString)) {
+      const parts = artistString.split(pattern);
+      const mainArtist = parts[0].trim();
+      const features = parts[1].replace(/[\)\]]+$/, '').trim();
+      return { mainArtist, features };
+    }
+  }
+  
+  return { mainArtist: artistString.trim(), features: null };
+}
+
+// --- HELPER: EXTRACT METADATA ---
+async function extractMetadata(blob: Blob): Promise<{
+  artist: string;
+  title: string;
+  album: string;
+}> {
+  return new Promise((resolve) => {
+    jsmediatags.read(blob, {
+      onSuccess: (tag: any) => {
+        resolve({
+          artist: tag.tags.artist || '',
+          title: tag.tags.title || '',
+          album: tag.tags.album || ''
+        });
+      },
+      onError: (error: any) => {
+        console.warn('Metadata extraction failed:', error);
+        resolve({ artist: '', title: '', album: '' });
+      }
+    });
+  });
+}
 
 // --- DOM SETUP ---
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -207,6 +257,7 @@ const pageTitle = document.getElementById('page-title')!;
 
 const pTitle = document.getElementById('p-title')!;
 const pArtist = document.getElementById('p-artist')!;
+const pAlbumName = document.getElementById('p-album') as HTMLDivElement;
 const pArt = document.getElementById('p-art') as HTMLImageElement;
 const btnPlay = document.getElementById('btn-play')!;
 const btnNext = document.getElementById('btn-next')!;
@@ -222,6 +273,7 @@ const lyricsCurtain = document.getElementById('lyrics-curtain')!;
 const curtainArt = document.getElementById('curtain-art') as HTMLImageElement;
 const curtainTitle = document.getElementById('curtain-title')!;
 const curtainArtist = document.getElementById('curtain-artist')!;
+const curtainAlbum = document.getElementById('curtain-album')!;
 
 const searchBtn = document.getElementById('search-btn')!;
 const searchContainer = document.getElementById('search-container')!;
@@ -331,7 +383,7 @@ saveThemeBtn.onclick = async () => {
     if (updatedColors) {
         applyAlbumTitleColors(state.currentAlbum.id);
         if (state.playingAlbumId === state.currentAlbum.id || !state.playingAlbumId) {
-             applyGlobalTheme(updatedColors.line);
+             applyGlobalColors(updatedColors.line);
         }
     }
     themeModal.classList.remove('open');
@@ -548,7 +600,6 @@ function updateSyncedLyrics(currentTime: number) {
     lines.forEach((line, index) => {
       if (index === newIndex) {
         line.classList.add('active');
-        // FIX: Scroll active line for BOTH desktop and mobile
         (line as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
       } else line.classList.remove('active');
     });
@@ -558,49 +609,79 @@ function updateSyncedLyrics(currentTime: number) {
 }
 
 // --- THEMING SYSTEM ---
+function applyAlbumTitleColors(albumId: string) {
+  const colors = state.albumColors[albumId];
+  const logoUrl = state.albumLogos[albumId];
+  const albumName = state.albums.find(a => a.id === albumId)?.name || 'MP3P';
+
+  if (colors) {
+    pageTitle.style.backgroundColor = colors.titleBg;
+    pageTitle.style.color = colors.titleText;
+    
+    if (logoUrl) {
+      pageTitle.classList.add('has-logo');
+      pageTitle.style.backgroundImage = `url("${logoUrl}")`;
+      pageTitle.textContent = '';
+      pageTitle.style.padding = '0 5px';
+      pageTitle.setAttribute('aria-label', albumName);
+    } else {
+      pageTitle.classList.remove('has-logo');
+      pageTitle.style.backgroundImage = '';
+      pageTitle.textContent = albumName.toUpperCase();
+      pageTitle.style.padding = '0 5px';
+    }
+  } else {
+    pageTitle.classList.remove('has-logo');
+    pageTitle.style.backgroundColor = '';
+    pageTitle.style.color = '';
+    pageTitle.style.backgroundImage = '';
+    pageTitle.textContent = albumName.toUpperCase();
+    pageTitle.style.padding = '0 5px';
+  }
+}
+
 function updateViewTheme(targetAlbumId: string | null) {
   const effectiveId = targetAlbumId || state.playingAlbumId;
   
   if (!effectiveId) {
       applyGlobalColors(null);
-      resetHeader(null);
+      pageTitle.classList.remove('has-logo');
+      pageTitle.style.backgroundColor = '';
+      pageTitle.style.color = '';
+      pageTitle.style.backgroundImage = '';
+      pageTitle.textContent = 'MP3P';
       return;
   }
 
   const colors = state.albumColors[effectiveId];
-  const albumName = state.albums.find(a => a.id === effectiveId)?.name || 'MP3P';
-
   if (colors) {
       applyGlobalColors(colors.line);
-      pageTitle.style.backgroundColor = colors.titleBg;
-      pageTitle.style.color = colors.titleText;
-      const logoUrl = state.albumLogos[effectiveId];
-      if (logoUrl) {
-          pageTitle.classList.add('has-logo');
-          pageTitle.style.backgroundImage = `url("${logoUrl}")`;
-          pageTitle.textContent = '';
-          pageTitle.setAttribute('aria-label', albumName);
-      } else {
-          pageTitle.classList.remove('has-logo');
-          pageTitle.style.backgroundImage = '';
-          pageTitle.textContent = albumName.toUpperCase();
-      }
+      applyAlbumTitleColors(effectiveId);
   } else {
       applyGlobalColors(null);
-      resetHeader(albumName);
+      const albumName = state.albums.find(a => a.id === effectiveId)?.name || 'MP3P';
+      pageTitle.textContent = albumName.toUpperCase();
+      pageTitle.style.backgroundColor = '';
+      pageTitle.style.color = '';
   }
 }
 
 function updatePlayerTheme() {
   if (!state.playingAlbumId) {
-      resetPlayerBar();
+      playerBar.style.borderTopColor = '';
+      pBarFill.style.backgroundColor = '';
+      pArtist.style.color = '';
+      btnPlay.style.backgroundColor = '';
+      btnPlay.style.borderColor = '';
+      btnPlay.style.color = '';
+      pArtBox.style.backgroundColor = '';
+      btnLyricsToggle.style.borderColor = '';
+      btnLyricsToggle.style.color = '';
       return;
   }
   const colors = state.albumColors[state.playingAlbumId];
-  if (!colors) {
-      resetPlayerBar();
-      return;
-  }
+  if (!colors) return;
+  
   playerBar.style.borderTopColor = colors.line;
   pBarFill.style.backgroundColor = colors.line;
   pArtist.style.color = colors.line;
@@ -608,12 +689,8 @@ function updatePlayerTheme() {
   btnPlay.style.borderColor = colors.line;
   btnPlay.style.color = colors.titleText || '#000';
   pArtBox.style.backgroundColor = colors.line;
-  
-  // COLORIZE MOBILE LYRICS BTN
   btnLyricsToggle.style.borderColor = colors.line;
   btnLyricsToggle.style.color = colors.line;
-  
-  // COLORIZE MOBILE CURTAIN ARTIST TEXT
   curtainArtist.style.color = colors.line;
   curtainTitle.style.color = colors.font;
 }
@@ -621,26 +698,6 @@ function updatePlayerTheme() {
 function applyGlobalColors(lineColor: string | null) {
   if (lineColor) document.documentElement.style.setProperty('--yellow', lineColor);
   else document.documentElement.style.removeProperty('--yellow');
-}
-
-function resetHeader(title: string | null) {
-  pageTitle.classList.remove('has-logo');
-  pageTitle.style.backgroundColor = '';
-  pageTitle.style.color = '';
-  pageTitle.style.backgroundImage = '';
-  pageTitle.textContent = title ? title.toUpperCase() : 'MP3P';
-}
-
-function resetPlayerBar() {
-  playerBar.style.borderTopColor = '';
-  pBarFill.style.backgroundColor = '';
-  pArtist.style.color = '';
-  btnPlay.style.backgroundColor = '';
-  btnPlay.style.borderColor = '';
-  btnPlay.style.color = '';
-  pArtBox.style.backgroundColor = '';
-  btnLyricsToggle.style.borderColor = '';
-  btnLyricsToggle.style.color = '';
 }
 
 // --- DURATION LOADER ---
@@ -715,8 +772,6 @@ function initGis() {
   });
   const syncAction = () => tokenClient.requestAccessToken({ prompt: '' });
   document.getElementById('auth-btn')!.onclick = syncAction;
-  
-  // Use Logo/Title as Sync trigger
   document.getElementById('page-title')!.onclick = syncAction;
   
   backBtn.onclick = () => {
@@ -753,8 +808,8 @@ async function loadSecureImage(imgEl: HTMLImageElement, fileId: string) {
 async function syncLibrary() {
   if (!state.token) return;
   gapi.client.setToken({ access_token: state.token });
-  state.trackCache = {}; state.coverBlobCache = {}; 
-
+  state.trackCache = {}; state.coverBlobCache = {};
+  
   try {
     mainView.innerHTML = `<div style="text-align:center; padding:50px; color:#666; font-weight:700;">SCANNING "${MUSIC_FOLDER_NAME}"...</div>`;
     const rootRes = await gapi.client.drive.files.list({ pageSize: 1, fields: "files(id)", q: `name = '${MUSIC_FOLDER_NAME}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false` });
@@ -911,7 +966,7 @@ async function preloadNextTrack(nextIndex: number) {
   }
 }
 
-// --- PLAYER ENGINE ---
+// --- PLAYER ENGINE WITH METADATA EXTRACTION ---
 async function play(index: number, retryCount = 0) {
   if (state.isLoadingTrack) return;
   state.isLoadingTrack = true;
@@ -933,14 +988,9 @@ async function play(index: number, retryCount = 0) {
   
   renderTrackList();
   
-  // UPDATE NOW PLAYING INFO
   const { cleanName } = parseTrackName(file.name);
   pTitle.innerText = "LOADING...";
-  const artistName = state.currentAlbum ? state.currentAlbum.name.toUpperCase() : "UNKNOWN";
-  pArtist.innerText = artistName;
-  
-  curtainTitle.innerText = cleanName.toUpperCase();
-  curtainArtist.innerText = artistName;
+  pArtist.innerText = "";
   
   const coverId = state.currentAlbum && state.covers[state.currentAlbum.id];
   if (coverId) {
@@ -955,6 +1005,8 @@ async function play(index: number, retryCount = 0) {
   if (state.currentBlobUrl) { URL.revokeObjectURL(state.currentBlobUrl); state.currentBlobUrl = null; }
 
   let blobUrl: string | null = null;
+  let audioBlob: Blob | null = null;
+  
   if (state.nextBlobId === file.id && state.nextBlobUrl) {
     console.log("Playing from Preload Cache!");
     blobUrl = state.nextBlobUrl;
@@ -972,8 +1024,46 @@ async function play(index: number, retryCount = 0) {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         let blob = await response.blob();
         const mime = getMimeType(file.name);
-        blob = blob.slice(0, blob.size, mime);
-        blobUrl = URL.createObjectURL(blob);
+        audioBlob = blob.slice(0, blob.size, mime);
+        blobUrl = URL.createObjectURL(audioBlob);
+      }
+
+      // EXTRACT METADATA FROM BLOB
+      if (audioBlob) {
+        try {
+          const metadata = await extractMetadata(audioBlob);
+          const { mainArtist, features } = parseArtistAndFeatures(
+            metadata.artist || state.currentAlbum?.name || 'Unknown Artist'
+          );
+          
+          // Update UI with extracted metadata
+          const trackTitle = metadata.title || cleanName;
+          let artistDisplay = mainArtist;
+          if (features) {
+            artistDisplay += ` feat. ${features}`;
+          }
+          const albumDisplay = metadata.album || state.currentAlbum?.name || '';
+          
+          pTitle.innerText = trackTitle.toUpperCase();
+          pArtist.innerText = artistDisplay.toUpperCase();
+          
+          curtainTitle.innerText = trackTitle.toUpperCase();
+          curtainArtist.innerText = artistDisplay.toUpperCase();
+          
+          // Update MediaSession
+          if ('mediaSession' in navigator) {
+            (navigator as any).mediaSession.metadata = new (window as any).MediaMetadata({
+              title: trackTitle,
+              artist: artistDisplay,
+              album: albumDisplay,
+              artwork: [{ src: pArt.src, sizes: '512x512', type: 'image/jpeg' }]
+            });
+          }
+        } catch (metaErr) {
+          console.warn("Metadata extraction failed, using fallback:", metaErr);
+          pTitle.innerText = cleanName.toUpperCase();
+          pArtist.innerText = state.currentAlbum?.name.toUpperCase() || "UNKNOWN";
+        }
       }
 
       state.currentBlobUrl = blobUrl;
@@ -985,7 +1075,6 @@ async function play(index: number, retryCount = 0) {
           state.isLoadingTrack = false;
           state.isPlaying = true;
           updatePlayBtn();
-          pTitle.innerText = cleanName.toUpperCase();
           startProgressUpdate();
         },
         onloaderror: (_id: number, err: any) => {
@@ -1004,7 +1093,8 @@ async function play(index: number, retryCount = 0) {
         }
       });
       state.currentSound.play();
-      btnLyricsToggle.style.display = 'flex'; // Show lyrics btn
+      btnLyricsToggle.style.display = 'flex';
+      
       loadLyrics(file.name).then(lyrics => {
         state.currentTrackLyrics = lyrics;
         if (lyrics.synced && lyrics.synced.length > 0) { state.currentLyrics = lyrics.synced; state.currentLyricIndex = -1; }
@@ -1026,10 +1116,6 @@ async function play(index: number, retryCount = 0) {
   }
 
   if ('mediaSession' in navigator) {
-      (navigator as any).mediaSession.metadata = new (window as any).MediaMetadata({
-          title: cleanName, artist: state.currentAlbum?.name || 'Unknown',
-          artwork: [{ src: pArt.src, sizes: '512x512', type: 'image/jpeg' }]
-      });
       (navigator as any).mediaSession.setActionHandler('play', () => { state.currentSound?.play(); state.isPlaying = true; updatePlayBtn(); });
       (navigator as any).mediaSession.setActionHandler('pause', () => { state.currentSound?.pause(); state.isPlaying = false; updatePlayBtn(); });
       (navigator as any).mediaSession.setActionHandler('previoustrack', () => { if (state.currentIndex > 0) play(state.currentIndex - 1); });
