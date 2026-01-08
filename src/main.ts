@@ -1,8 +1,6 @@
 import './style.css'
 import { Howl } from 'howler'
-// @ts-ignore
-import * as jsmediatags from 'jsmediatags/dist/jsmediatags.min.js';
-
+import { extractMetadata } from './services/MetadataService';
 declare const gapi: any;
 declare const google: any;
 
@@ -99,29 +97,6 @@ function parseArtistAndFeatures(artistString: string): { mainArtist: string, fea
   }
   
   return { mainArtist: artistString.trim(), features: null };
-}
-
-// --- HELPER: EXTRACT METADATA ---
-async function extractMetadata(blob: Blob): Promise<{
-  artist: string;
-  title: string;
-  album: string;
-}> {
-  return new Promise((resolve) => {
-    jsmediatags.read(blob, {
-      onSuccess: (tag: any) => {
-        resolve({
-          artist: tag.tags.artist || '',
-          title: tag.tags.title || '',
-          album: tag.tags.album || ''
-        });
-      },
-      onError: (error: any) => {
-        console.warn('Metadata extraction failed:', error);
-        resolve({ artist: '', title: '', album: '' });
-      }
-    });
-  });
 }
 
 // --- DOM SETUP ---
