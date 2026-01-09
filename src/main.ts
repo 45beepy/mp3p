@@ -1120,4 +1120,40 @@ btnNext.onclick = () => { if (state.currentIndex < state.playlist.length - 1) pl
 btnPrev.onclick = () => { if (state.currentIndex > 0) play(state.currentIndex - 1); };
 pScrubber.onclick = (e) => { if (!state.currentSound) return; const rect = pBarBg.getBoundingClientRect(); const pos = (e.clientX - rect.left) / rect.width; state.currentSound.seek(pos * state.currentSound.duration()); };
 
+// --- KEYBOARD SHORTCUTS ---
+document.addEventListener('keydown', (e) => {
+  // Ignore if typing in search
+  if (e.target === searchInput) return;
+  
+  switch(e.key) {
+    case ' ': // Space = Play/Pause
+      e.preventDefault();
+      btnPlay.click();
+      break;
+    
+    case 'ArrowLeft': // Previous track
+      e.preventDefault();
+      btnPrev.click();
+      break;
+    
+    case 'ArrowRight': // Next track
+      e.preventDefault();
+      btnNext.click();
+      break;
+    
+    case 'l':
+    case 'L': // Toggle lyrics
+      btnLyricsToggle.click();
+      break;
+    
+    case 'Escape': // Close search or lyrics
+      if (searchContainer.style.display !== 'none') {
+        clearSearchBtn.click();
+      } else if (state.lyricsCurtainOpen) {
+        btnLyricsToggle.click();
+      }
+      break;
+  }
+});
+
 loadScripts();
