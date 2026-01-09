@@ -1,6 +1,7 @@
 import './style.css'
 import { Howl } from 'howler'
 import { extractMetadata } from './services/MetadataService';
+
 declare const gapi: any;
 declare const google: any;
 
