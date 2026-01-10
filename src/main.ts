@@ -268,6 +268,34 @@ app.innerHTML = `
     </div>
   </div>
 
+  <!-- NEW LYRICS OVERLAY -->
+<div id="lyrics-overlay" class="lyrics-overlay">
+  <div class="lyrics-backdrop" id="lyrics-backdrop"></div>
+  
+  <div class="lyrics-container">
+    <div class="lyrics-header">
+      <button class="lyrics-close" id="lyrics-close">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </button>
+    </div>
+
+    <div class="lyrics-artwork-container">
+      <img id="lyrics-art" class="lyrics-artwork" src="${EMPTY_COVER}">
+    </div>
+
+    <div class="lyrics-info">
+      <div class="lyrics-title" id="lyrics-title">NOT PLAYING</div>
+      <div class="lyrics-artist" id="lyrics-artist-name">UNKNOWN</div>
+    </div>
+
+    <div class="lyrics-content-wrapper" id="lyrics-content-wrapper">
+      <p class="lyrics-placeholder">No lyrics available</p>
+    </div>
+  </div>
+</div>
+
   <div id="player-bar">
     <div class="p-art-box">
       <img id="p-art" class="p-art" src="${EMPTY_COVER}">
@@ -600,18 +628,78 @@ saveThemeBtn.onclick = async () => {
   }
 };
 
-// --- SEARCH & LYRICS UI ---
+
+// NEW LYRICS OVERLAY HANDLER
+const lyricsOverlay = document.getElementById('lyrics-overlay')!;
+const lyricsClose = document.getElementById('lyrics-close')!;
+const lyricsBackdrop = document.getElementById('lyrics-backdrop') as HTMLElement;
+const lyricsArt = document.getElementById('lyrics-art') as HTMLImageElement;
+const lyricsTitle = document.getElementById('lyrics-title')!;
+const lyricsArtistName = document.getElementById('lyrics-artist-name')!;
+const lyricsContentWrapper = document.getElementById('lyrics-content-wrapper')!;
+
 btnLyricsToggle.onclick = () => {
   state.lyricsCurtainOpen = !state.lyricsCurtainOpen;
   if (state.lyricsCurtainOpen) {
-    lyricsCurtain.classList.add('open');
+    // Set backdrop
+    if (pArt.src && pArt.src !== EMPTY_COVER) {
+      lyricsBackdrop.style.backgroundImage = `url(${pArt.src})`;
+    }
+    
+    // Set artwork and info
+    lyricsArt.src = pArt.src;
+    lyricsTitle.textContent = pTitle.textContent;
+    lyricsArtistName.textContent = pArtist.textContent;
+    
+    // Show overlay
+    lyricsOverlay.classList.add('open');
     btnLyricsToggle.classList.add('active');
-    updateCurtainLyrics(state.currentTrackLyrics);
+    
+    // Update lyrics
+    updateNewLyricsDisplay(state.currentTrackLyrics);
   } else {
-    lyricsCurtain.classList.remove('open');
+    lyricsOverlay.classList.remove('open');
     btnLyricsToggle.classList.remove('active');
   }
 };
+
+lyricsClose.onclick = () => {
+  state.lyricsCurtainOpen = false;
+  lyricsOverlay.classList.remove('open');
+  btnLyricsToggle.classList.remove('active');
+};
+
+// New function to update lyrics in new overlay
+function updateNewLyricsDisplay(lyrics: { plain: string | null, synced: LyricLine[] | null }) {
+  if (lyrics.synced && lyrics.synced.length > 0) {
+    state.currentLyrics = lyrics.synced;
+    state.currentLyricIndex = -1;
+    lyricsContentWrapper.innerHTML = lyrics.synced
+      .map((line, index) => 
+        `<p class="lyric-line" data-index="${index}" data-time="${line.time}">${line.text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`
+      )
+      .join('');
+    
+    // Add click handlers for seeking
+    lyricsContentWrapper.querySelectorAll('.lyric-line').forEach(el => {
+      el.addEventListener('click', () => {
+        const time = parseFloat(el.getAttribute('data-time') || '0');
+        if (state.currentSound) {
+          state.currentSound.seek(time);
+        }
+      });
+    });
+  } else if (lyrics.plain) {
+    state.currentLyrics = [];
+    state.currentLyricIndex = -1;
+    lyricsContentWrapper.innerHTML = lyrics.plain
+      .split('\n')
+      .map(line => `<p>${line.trim() === '' ? '<br>' : line.replace(/&/g, '&amp;')}</p>`)
+      .join('');
+  } else {
+    lyricsContentWrapper.innerHTML = '<p class="lyrics-placeholder">No lyrics available</p>';
+  }
+}
 
 searchBtn.onclick = () => {
   const isVisible = searchContainer.style.display !== 'none';
