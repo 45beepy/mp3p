@@ -288,9 +288,9 @@ const inputFont = document.getElementById('input-font') as HTMLInputElement;
 
 const cacheBtn = document.getElementById('cache-btn')!;
 const cacheModal = document.getElementById('cache-modal')!;
-const downloadAlbumBtn = document.getElementById('download-album-btn')!;
-const clearCacheBtn = document.getElementById('clear-cache-btn')!;
-const closeCacheBtn = document.getElementById('close-cache-btn')!;
+const downloadAlbumBtn = document.getElementById('download-album-btn') as HTMLButtonElement;
+const clearCacheBtn = document.getElementById('clear-cache-btn') as HTMLButtonElement;
+const closeCacheBtn = document.getElementById('close-cache-btn') as HTMLButtonElement;
 const cacheTrackCount = document.getElementById('cache-track-count')!;
 const cacheSize = document.getElementById('cache-size')!;
 
