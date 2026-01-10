@@ -11,7 +11,7 @@ export default defineConfig({
         name: 'MP3P - Music Player',
         short_name: 'MP3P',
         description: 'Personal FLAC music player with Google Drive integration',
-        theme_color: '#ffff64',
+        theme_color: '#000000',
         background_color: '#000000',
         display: 'standalone',
         orientation: 'portrait',
