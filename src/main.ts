@@ -47,7 +47,7 @@ let state = {
   lyricsCache: {} as Record<string, string>,
   syncedLyricsCache: {} as Record<string, LyricLine[]>,
   
-  // NEW: Audio cache tracking
+  // Audio cache tracking
   cachedTracks: new Set<string>(),
   downloadingTracks: new Set<string>(),
 
@@ -85,12 +85,12 @@ function parseArtistAndFeatures(artistString: string): { mainArtist: string, fea
   if (!artistString) return { mainArtist: '', features: null };
   
   const featPatterns = [
-    /\s+feat\.?\s+/i,
-    /\s+ft\.?\s+/i,
+    /\s+feat\.\?\s+/i,
+    /\s+ft\.\?\s+/i,
     /\s+featuring\s+/i,
-    /\s+\(feat\.?\s+/i,
-    /\s+\(ft\.?\s+/i,
-    /\s+\[feat\.?\s+/i
+    /\s+\(feat\.\?\s+/i,
+    /\s+\(ft\.\?\s+/i,
+    /\s+\[feat\.\?\s+/i
   ];
   
   for (const pattern of featPatterns) {
@@ -203,6 +203,58 @@ app.innerHTML = `
     </div>
   </div>
 
+  <!-- Now Playing Overlay (Mobile Only) -->
+  <div id="now-playing-overlay" class="now-playing-overlay">
+    <div class="np-backdrop" id="np-backdrop"></div>
+    
+    <div class="np-container">
+      <div class="np-header">
+        <button class="np-close" id="np-close">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      <div class="np-artwork-container">
+        <img id="np-art" class="np-artwork" src="${EMPTY_COVER}">
+      </div>
+
+      <div class="np-info">
+        <div class="np-title" id="np-title">NOT PLAYING</div>
+        <div class="np-artist" id="np-artist">UNKNOWN</div>
+      </div>
+
+      <div class="np-progress-container">
+        <div class="np-progress-bar" id="np-progress-bar">
+          <div class="np-progress-fill" id="np-progress-fill"></div>
+        </div>
+        <div class="np-times">
+          <span id="np-current-time">0:00</span>
+          <span id="np-duration">0:00</span>
+        </div>
+      </div>
+
+      <div class="np-controls">
+        <button class="np-btn" id="np-prev">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
+          </svg>
+        </button>
+        <button class="np-btn np-play-btn" id="np-play">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5v14l11-7z"/>
+          </svg>
+        </button>
+        <button class="np-btn" id="np-next">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div id="lyrics-curtain" class="lyrics-curtain">
     <div class="curtain-header-mobile">
       <img id="curtain-art" class="curtain-art" src="${EMPTY_COVER}">
@@ -294,6 +346,28 @@ const closeCacheBtn = document.getElementById('close-cache-btn') as HTMLButtonEl
 const cacheTrackCount = document.getElementById('cache-track-count')!;
 const cacheSize = document.getElementById('cache-size')!;
 
+// Now Playing Overlay Elements
+const nowPlayingOverlay = document.getElementById('now-playing-overlay')!;
+const npClose = document.getElementById('np-close')!;
+const npBackdrop = document.getElementById('np-backdrop') as HTMLElement;
+const npArt = document.getElementById('np-art') as HTMLImageElement;
+const npTitle = document.getElementById('np-title')!;
+const npArtist = document.getElementById('np-artist')!;
+const npProgressBar = document.getElementById('np-progress-bar')!;
+const npProgressFill = document.getElementById('np-progress-fill')!;
+const npCurrentTime = document.getElementById('np-current-time')!;
+const npDuration = document.getElementById('np-duration')!;
+const npPlay = document.getElementById('np-play')!;
+const npPrev = document.getElementById('np-prev')!;
+const npNext = document.getElementById('np-next')!;
+
+function formatTime(seconds: number): string {
+  if (!isFinite(seconds)) return '0:00';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
 // Initialize audio cache
 audioCacheService.init().then(() => {
   console.log('Audio cache initialized');
@@ -324,7 +398,6 @@ downloadAlbumBtn.onclick = async () => {
   for (let i = 0; i < state.tracks.length; i++) {
     const track = state.tracks[i];
     
-    // Skip if already cached
     if (await audioCacheService.isTrackCached(track.id)) continue;
     
     try {
@@ -366,6 +439,58 @@ clearCacheBtn.onclick = async () => {
   await updateCacheStats();
   clearCacheBtn.textContent = 'Clear All Cache';
   alert('Cache cleared!');
+};
+
+// Now Playing Overlay Handlers
+function openNowPlaying() {
+  if (window.innerWidth > 768) return;
+  if (!state.currentSound) return;
+  
+  if (pArt.src && pArt.src !== EMPTY_COVER) {
+    npBackdrop.style.backgroundImage = `url(${pArt.src})`;
+  }
+  
+  npArt.src = pArt.src;
+  npTitle.textContent = pTitle.textContent;
+  npArtist.textContent = pArtist.textContent;
+  
+  updateNowPlayingButton();
+  
+  nowPlayingOverlay.classList.add('open');
+}
+
+function closeNowPlaying() {
+  nowPlayingOverlay.classList.remove('open');
+}
+
+function updateNowPlayingButton() {
+  const svg = state.isPlaying 
+    ? '<svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>'
+    : '<svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+  npPlay.innerHTML = svg;
+}
+
+// Click player bar to open (but not controls)
+playerBar.onclick = (e) => {
+  if ((e.target as HTMLElement).closest('.p-controls')) return;
+  openNowPlaying();
+};
+
+npClose.onclick = closeNowPlaying;
+
+npPlay.onclick = () => {
+  btnPlay.click();
+  updateNowPlayingButton();
+};
+
+npPrev.onclick = () => btnPrev.click();
+npNext.onclick = () => btnNext.click();
+
+npProgressBar.onclick = (e) => {
+  if (!state.currentSound) return;
+  const rect = npProgressBar.getBoundingClientRect();
+  const pos = (e.clientX - rect.left) / rect.width;
+  state.currentSound.seek(pos * state.currentSound.duration());
 };
 
 function setupColorInput(input: HTMLInputElement, labelId: string) {
@@ -909,145 +1034,95 @@ async function syncLibrary() {
 
 // --- VIEWS ---
 async function showAlbums() {
-  backBtn.style.display = 'none'; editThemeBtn.style.display = 'none';
-  cacheBtn.style.display = 'none'; // ADD THIS LINE
+  backBtn.style.display = 'none'; 
+  editThemeBtn.style.display = 'none';
+  cacheBtn.style.display = 'none';
   mainHeader.classList.remove('album-mode');
-
+  
+  state.currentAlbum = null;
   updateViewTheme(null);
   
-  if(state.albums.length === 0) { mainView.innerHTML = `<div style="text-align:center; padding:50px; color:#666;">NO ALBUMS FOUND</div>`; return; }
-
-  const filteredAlbums = state.searchQuery ? state.albums.filter(album => album.name.toLowerCase().includes(state.searchQuery)) : state.albums;
-  if (filteredAlbums.length === 0) { mainView.innerHTML = `<div style="text-align:center; padding:50px; color:#666;">NO ALBUMS MATCH "${state.searchQuery}"</div>`; return; }
-
-  const grid = document.createElement('div');
-  grid.className = 'grid';
+  const filtered = state.searchQuery ? state.albums.filter(a => a.name.toLowerCase().includes(state.searchQuery)) : state.albums;
+  const sorted = filtered.sort((a, b) => a.name.localeCompare(b.name));
   
-  filteredAlbums.forEach(album => {
-    const coverId = state.covers[album.id];
+  mainView.innerHTML = `<div id="album-grid" class="album-grid"></div>`;
+  const grid = document.getElementById('album-grid')!;
+  
+  for (const album of sorted) {
     const card = document.createElement('div');
     card.className = 'album-card';
-    const titleClass = (album.id === state.playingAlbumId) ? 'album-title playing' : 'album-title';
-    
-    card.innerHTML = `<img class="album-cover" src="${EMPTY_COVER}"><div class="${titleClass}">${album.name}</div>`;
-    const img = card.querySelector('img') as HTMLImageElement;
-    if (coverId) loadSecureImage(img, coverId); else img.src = FALLBACK_COVER;
+    card.innerHTML = `<img class="album-cover" src="${EMPTY_COVER}" data-album-id="${album.id}"><p class="album-name">${album.name}</p>`;
     card.onclick = () => openAlbum(album);
     grid.appendChild(card);
-  });
-  
-  mainView.innerHTML = '';
-  mainView.appendChild(grid);
-  
-  if (state.playingAlbumId) {
-      const colors = state.albumColors[state.playingAlbumId];
-      if (colors) {
-          document.querySelectorAll('.album-title.playing').forEach(el => {
-              const htmlEl = el as HTMLElement;
-              htmlEl.style.color = colors.font;
-              htmlEl.style.borderBottomColor = colors.line;
-          });
-      }
+    
+    const img = card.querySelector('img') as HTMLImageElement;
+    if (state.covers[album.id]) loadSecureImage(img, state.covers[album.id]);
+    else img.src = FALLBACK_COVER;
   }
 }
 
 async function openAlbum(album: DriveFile) {
   state.currentAlbum = album;
-  backBtn.style.display = 'flex'; editThemeBtn.style.display = 'flex';
-  cacheBtn.style.display = 'flex'; // ADD THIS LINE
+  backBtn.style.display = 'flex'; 
+  editThemeBtn.style.display = 'flex';
+  cacheBtn.style.display = 'flex';
   mainHeader.classList.add('album-mode');
   searchContainer.style.display = 'none';
   
-  await loadAlbumColors(album.id);
-  updateViewTheme(album.id);
+  if (state.trackCache[album.id]) {
+    state.tracks = state.trackCache[album.id];
+    await loadAlbumColors(album.id);
+    updateViewTheme(album.id);
+    renderTracks();
+    return;
+  }
   
-  if (state.trackCache[album.id]) { state.tracks = state.trackCache[album.id]; renderTrackList(); return; }
-
-  mainView.innerHTML = `<div style="text-align:center; padding:50px; color:#666; font-weight:700;">LOADING TRACKS...</div>`;
+  mainView.innerHTML = `<div style="text-align:center; padding:50px; color:#666; font-weight:700;">LOADING...</div>`;
+  
   try {
-      state.tracks = await fetchAll(`'${album.id}' in parents and (mimeType contains 'audio/') and trashed = false`, "id, name, mimeType, size");
-      state.tracks.sort((a, b) => parseTrackName(a.name).number - parseTrackName(b.name).number);
-      state.trackCache[album.id] = state.tracks;
-      renderTrackList();
-  } catch { mainView.innerHTML = "ERROR LOADING TRACKS"; }
+    const files = await fetchAll(`'${album.id}' in parents and trashed = false`, "id, name, mimeType");
+    state.tracks = files.filter(f => !f.mimeType.includes('folder') && f.name !== 'folder.jpg' && f.name !== 'colors.txt' && f.name !== 'title-logo.png').sort((a, b) => {
+      const aData = parseTrackName(a.name);
+      const bData = parseTrackName(b.name);
+      return aData.number !== bData.number ? aData.number - bData.number : aData.cleanName.localeCompare(bData.cleanName);
+    });
+    
+    state.trackCache[album.id] = state.tracks;
+    await loadAlbumColors(album.id);
+    updateViewTheme(album.id);
+    renderTracks();
+  } catch { mainView.innerHTML = `<div style="text-align:center; padding:50px; color:var(--yellow);">FAILED TO LOAD</div>`; }
 }
 
-function renderTrackList() {
-  const isDesktop = window.innerWidth > 768;
-  const listContainer = document.createElement('div');
+function renderTracks() {
+  const cover = state.covers[state.currentAlbum!.id];
+  let headerHTML = '';
   
-  if (isDesktop) {
-    const container = document.createElement('div'); container.className = 'album-view-desktop';
-    const left = document.createElement('div'); left.className = 'album-left';
-    left.innerHTML = `<div class="album-art-large"><img src="${EMPTY_COVER}"></div><div class="album-info"><h2>${state.currentAlbum?.name}</h2><p class="track-count">${state.tracks.length} tracks</p></div>`;
-    const coverImg = left.querySelector('img') as HTMLImageElement;
-    const coverId = state.currentAlbum && state.covers[state.currentAlbum.id];
-    if (coverId) loadSecureImage(coverImg, coverId); else coverImg.src = FALLBACK_COVER;
-    
-    const middle = document.createElement('div'); middle.className = 'album-middle';
-    listContainer.className = 'track-list-compact';
-    middle.appendChild(listContainer);
-    
-    const right = document.createElement('div'); right.className = 'album-right'; right.id = 'lyrics-panel';
-    right.innerHTML = `<div class="lyrics-header">LYRICS</div><div class="lyrics-content"><p class="lyrics-placeholder">Select a track</p></div>`;
-    
-    container.append(left, middle, right);
-    mainView.innerHTML = ''; mainView.appendChild(container);
-    if (state.currentTrackLyrics.plain || state.currentTrackLyrics.synced) setTimeout(() => updateLyricsPanel(state.currentTrackLyrics), 100);
-  } else {
-    listContainer.className = 'track-list';
-    mainView.innerHTML = ''; mainView.appendChild(listContainer);
+  if (cover) {
+    headerHTML = `<div class="album-header"><img class="big-cover" src="${EMPTY_COVER}" id="big-cover"></div>`;
   }
-
-  state.tracks.forEach((file, index) => {
-    const row = document.createElement('div'); row.className = 'track-row';
-    const isActive = (file.id === state.playingFileId);
-    if (isActive) row.classList.add('active');
-    const { cleanName } = parseTrackName(file.name);
-    const ext = file.name.split('.').pop()?.toUpperCase() || 'AUDIO';
-    const cachedDuration = state.durationCache[file.id] || '--:--';
-    
-    row.innerHTML = `<div class="track-left"><div class="track-num">${index + 1}</div><div class="track-info"><div class="track-name">${cleanName}</div></div></div><div class="track-right"><span class="track-tech tech-ext">${ext}</span><span class="track-tech track-duration" data-index="${index}">${cachedDuration}</span></div>`;
+  
+  mainView.innerHTML = headerHTML + `<div id="track-list"></div>`;
+  
+  if (cover) {
+    const bigCover = document.getElementById('big-cover') as HTMLImageElement;
+    loadSecureImage(bigCover, cover);
+  }
+  
+  const trackList = document.getElementById('track-list')!;
+  state.tracks.forEach((track, index) => {
+    const { cleanName } = parseTrackName(track.name);
+    const row = document.createElement('div');
+    row.className = 'track-row';
+    if (state.playingFileId === track.id) row.classList.add('playing');
+    row.innerHTML = `<span class="track-name">${cleanName}</span><span class="track-duration" data-index="${index}">...</span>`;
     row.onclick = () => play(index);
-    listContainer.appendChild(row);
-    if (!state.durationCache[file.id]) loadTrackDuration(file.id, index, file.name);
+    trackList.appendChild(row);
+    loadTrackDuration(track.id, index, track.name);
   });
 }
 
-// --- NEW PRELOAD LOGIC ---
-async function preloadNextTrack(nextIndex: number) {
-  if (nextIndex >= state.playlist.length) return;
-  const nextFile = state.playlist[nextIndex];
-  
-  if (state.nextBlobId === nextFile.id) return;
-  if (state.isPreloading) return;
-
-  state.isPreloading = true;
-  console.log(`Preloading next: ${nextFile.name}`);
-
-  try {
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${nextFile.id}?alt=media`, {
-      headers: { 'Authorization': `Bearer ${state.token}`, 'Accept': 'audio/*' }
-    });
-    
-    if (!response.ok) throw new Error('Preload fetch failed');
-    
-    let blob = await response.blob();
-    const mime = getMimeType(nextFile.name);
-    if (mime === 'audio/mp4') blob = blob.slice(0, blob.size, mime);
-    
-    const blobUrl = URL.createObjectURL(blob);
-    state.nextBlobId = nextFile.id;
-    state.nextBlobUrl = blobUrl;
-    
-  } catch (err) {
-    console.error("Preload Error:", err);
-  } finally {
-    state.isPreloading = false;
-  }
-}
-
-// --- PLAYER ENGINE WITH METADATA EXTRACTION ---
+// --- PLAYBACK ---
 async function play(index: number, retryCount = 0) {
   if (state.isLoadingTrack) return;
   state.isLoadingTrack = true;
@@ -1055,40 +1130,27 @@ async function play(index: number, retryCount = 0) {
   state.currentIndex = index;
   state.playlist = state.tracks;
   const file = state.playlist[index];
-  state.playingFileId = file.id; 
+  state.playingFileId = file.id;
   
-  if (state.currentAlbum) {
-      state.playingAlbumId = state.currentAlbum.id;
-      await loadAlbumColors(state.currentAlbum.id);
-      updatePlayerTheme();
-      
-      if (backBtn.style.display === 'none') {
-          updateViewTheme(state.currentAlbum.id);
+  if (!state.playingAlbumId || state.playingAlbumId !== state.currentAlbum?.id) {
+      state.playingAlbumId = state.currentAlbum?.id || null;
+      if (state.playingAlbumId) {
+          await loadAlbumColors(state.playingAlbumId);
+          updatePlayerTheme();
       }
   }
   
-  renderTrackList();
+  document.querySelectorAll('.track-row').forEach((row, i) => {
+    if (i === index) row.classList.add('playing');
+    else row.classList.remove('playing');
+  });
   
-  const { cleanName } = parseTrackName(file.name);
-  pTitle.innerText = "LOADING...";
-  pArtist.innerText = "";
-  
-  const coverId = state.currentAlbum && state.covers[state.currentAlbum.id];
-  if (coverId) {
-      loadSecureImage(pArt, coverId);
-      loadSecureImage(curtainArt, coverId);
-  } else {
-      pArt.src = FALLBACK_COVER;
-      curtainArt.src = FALLBACK_COVER;
-  }
-
-if (state.currentSound) { state.currentSound.unload(); state.currentSound = null; }
+  if (state.currentSound) { state.currentSound.unload(); state.currentSound = null; }
   if (state.currentBlobUrl) { URL.revokeObjectURL(state.currentBlobUrl); state.currentBlobUrl = null; }
 
   let blobUrl: string | null = null;
   let audioBlob: Blob | null = null;
   
-  // Check preload cache first
   if (state.nextBlobId === file.id && state.nextBlobUrl) {
     console.log("Playing from Preload Cache!");
     blobUrl = state.nextBlobUrl;
@@ -1100,7 +1162,6 @@ if (state.currentSound) { state.currentSound.unload(); state.currentSound = null
 
   try {
       if (!blobUrl) {
-        // NEW: Check IndexedDB cache first
         const cachedBlob = await audioCacheService.getCachedTrack(file.id);
         
         if (cachedBlob) {
@@ -1108,7 +1169,6 @@ if (state.currentSound) { state.currentSound.unload(); state.currentSound = null
           audioBlob = cachedBlob;
           blobUrl = URL.createObjectURL(audioBlob);
         } else {
-          // Fetch from Google Drive
           const response = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
               headers: { 'Authorization': `Bearer ${state.token}`, 'Accept': 'audio/*' }
           });
@@ -1118,7 +1178,6 @@ if (state.currentSound) { state.currentSound.unload(); state.currentSound = null
           audioBlob = blob.slice(0, blob.size, mime);
           blobUrl = URL.createObjectURL(audioBlob);
           
-          // NEW: Cache this track for offline use (async, don't wait)
           if (state.currentAlbum) {
             audioCacheService.cacheTrack(
               file.id,
@@ -1133,102 +1192,79 @@ if (state.currentSound) { state.currentSound.unload(); state.currentSound = null
           }
         }
       }
-      // EXTRACT METADATA FROM BLOB
-      if (audioBlob) {
-        try {
-          const metadata = await extractMetadata(audioBlob);
-          const { mainArtist, features } = parseArtistAndFeatures(
-            metadata.artist || state.currentAlbum?.name || 'Unknown Artist'
-          );
-          
-          // Update UI with extracted metadata
-          const trackTitle = metadata.title || cleanName;
-          let artistDisplay = mainArtist;
-          if (features) {
-            artistDisplay += ` feat. ${features}`;
+
+      if (!audioBlob) {
+          const response = await fetch(blobUrl!);
+          audioBlob = await response.blob();
+      }
+
+      const metadata = await extractMetadata(audioBlob, file.name);
+      let displayTitle = metadata.title || parseTrackName(file.name).cleanName;
+      let displayArtist = metadata.artist || (state.currentAlbum?.name || 'Unknown Artist');
+
+      const { mainArtist, features } = parseArtistAndFeatures(displayArtist);
+      displayArtist = mainArtist;
+      const featureHTML = features ? `<span class="p-features">feat. ${features}</span>` : '';
+
+      pTitle.innerHTML = displayTitle;
+      pArtist.innerHTML = displayArtist + featureHTML;
+      curtainTitle.textContent = displayTitle;
+      curtainArtist.textContent = displayArtist;
+      
+      npTitle.textContent = displayTitle;
+      npArtist.textContent = displayArtist;
+
+      if (metadata.albumArt) {
+          pArt.src = metadata.albumArt;
+          curtainArt.src = metadata.albumArt;
+          npArt.src = metadata.albumArt;
+      } else if (state.currentAlbum && state.covers[state.currentAlbum.id]) {
+          if (state.coverBlobCache[state.currentAlbum.id]) {
+              pArt.src = state.coverBlobCache[state.currentAlbum.id];
+              curtainArt.src = state.coverBlobCache[state.currentAlbum.id];
+              npArt.src = state.coverBlobCache[state.currentAlbum.id];
+          } else {
+              const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${state.covers[state.currentAlbum.id]}?alt=media`, { headers: { 'Authorization': `Bearer ${state.token}` } });
+              const coverBlob = await resp.blob();
+              const coverUrl = URL.createObjectURL(coverBlob);
+              state.coverBlobCache[state.currentAlbum.id] = coverUrl;
+              pArt.src = coverUrl;
+              curtainArt.src = coverUrl;
+              npArt.src = coverUrl;
           }
-          const albumDisplay = metadata.album || state.currentAlbum?.name || '';
-          
-          pTitle.innerText = trackTitle.toUpperCase();
-          pArtist.innerText = artistDisplay.toUpperCase();
-          
-          curtainTitle.innerText = trackTitle.toUpperCase();
-          curtainArtist.innerText = artistDisplay.toUpperCase();
-          
-          // Update MediaSession
-          if ('mediaSession' in navigator) {
-            (navigator as any).mediaSession.metadata = new (window as any).MediaMetadata({
-              title: trackTitle,
-              artist: artistDisplay,
-              album: albumDisplay,
-              artwork: [{ src: pArt.src, sizes: '512x512', type: 'image/jpeg' }]
-            });
-          }
-        } catch (metaErr) {
-          console.warn("Metadata extraction failed, using fallback:", metaErr);
-          pTitle.innerText = cleanName.toUpperCase();
-          pArtist.innerText = state.currentAlbum?.name.toUpperCase() || "UNKNOWN";
-        }
+      } else {
+          pArt.src = FALLBACK_COVER;
+          curtainArt.src = FALLBACK_COVER;
+          npArt.src = FALLBACK_COVER;
       }
 
       state.currentBlobUrl = blobUrl;
-      const useHtml5 = (extRaw !== 'm4a');
-      
-      state.currentSound = new Howl({
-        src: [blobUrl], format: [extRaw === 'm4a' ? 'mp4' : extRaw], html5: useHtml5,
-        onload: () => {
-          state.isLoadingTrack = false;
-          state.isPlaying = true;
-          updatePlayBtn();
-          startProgressUpdate();
-        },
-        onloaderror: (_id: number, err: any) => {
-          console.error("Howler Load Error:", err);
-          pTitle.innerText = "ERROR LOADING";
-          state.isLoadingTrack = false;
-        },
-        onplayerror: (_id: number, err: any) => {
-          console.error("Howler Play Error:", err);
-          pTitle.innerText = "ERROR PLAYING";
-        },
-        onend: () => {
-          state.isPlaying = false;
-          updatePlayBtn();
-          if (state.currentIndex < state.playlist.length - 1) play(state.currentIndex + 1);
-        }
-      });
-      state.currentSound.play();
-      btnLyricsToggle.style.display = 'flex';
-      
-      loadLyrics(file.name).then(lyrics => {
-        state.currentTrackLyrics = lyrics;
-        if (lyrics.synced && lyrics.synced.length > 0) { state.currentLyrics = lyrics.synced; state.currentLyricIndex = -1; }
-        else { state.currentLyrics = []; state.currentLyricIndex = -1; }
-        const lyricsContent = document.querySelector('.lyrics-content');
-        if (lyricsContent) updateLyricsPanel(lyrics);
-        updateCurtainLyrics(lyrics);
-      }).catch(() => {
-        state.currentTrackLyrics = { plain: null, synced: null };
-        state.currentLyrics = []; state.currentLyricIndex = -1;
-      });
-  } catch (err: any) {
-      console.error("Playback Error:", err);
-      state.isLoadingTrack = false;
-      if (retryCount < 2) { setTimeout(() => play(index, retryCount + 1), 1000); return; }
-      pTitle.innerText = "ERROR PLAYING";
-      if (err.message?.includes('403') || err.message?.includes('401')) pArtist.innerText = "TOKEN EXPIRED - RESET";
-      else pArtist.innerText = "PLAYBACK FAILED";
-  }
 
-  if ('mediaSession' in navigator) {
-      (navigator as any).mediaSession.setActionHandler('play', () => { state.currentSound?.play(); state.isPlaying = true; updatePlayBtn(); });
-      (navigator as any).mediaSession.setActionHandler('pause', () => { state.currentSound?.pause(); state.isPlaying = false; updatePlayBtn(); });
-      (navigator as any).mediaSession.setActionHandler('previoustrack', () => { if (state.currentIndex > 0) play(state.currentIndex - 1); });
-      (navigator as any).mediaSession.setActionHandler('nexttrack', () => { if (state.currentIndex < state.playlist.length - 1) play(state.currentIndex + 1); });
+      state.currentSound = new Howl({
+          src: [blobUrl],
+          format: [extRaw],
+          html5: true,
+          onplay: () => { state.isPlaying = true; state.isLoadingTrack = false; updatePlayBtn(); startProgressUpdate(); },
+          onpause: () => { state.isPlaying = false; updatePlayBtn(); },
+          onend: () => { next(); },
+          onloaderror: (id, err) => { console.error('Load error:', id, err); state.isLoadingTrack = false; },
+          onplayerror: (id, err) => { console.error('Play error:', id, err); state.isLoadingTrack = false; }
+      });
+
+      state.currentSound.play();
+
+      const lyrics = await loadLyrics(file.name);
+      state.currentTrackLyrics = lyrics;
+      if (state.lyricsCurtainOpen) updateCurtainLyrics(lyrics);
+
+  } catch (err) {
+      console.error(err);
+      state.isLoadingTrack = false;
+      if (retryCount < 2) { console.warn(`Retry ${retryCount + 1}/2`); setTimeout(() => play(index, retryCount + 1), 1000); }
+      else { pTitle.textContent = 'PLAYBACK FAILED'; pArtist.textContent = 'Check connection'; }
   }
 }
 
-// --- CONTROLS ---
 function startProgressUpdate() {
   if (progressInterval) clearInterval(progressInterval);
   progressInterval = window.setInterval(() => {
@@ -1238,6 +1274,11 @@ function startProgressUpdate() {
       if (duration > 0) {
         const pct = (seek / duration) * 100;
         pBarFill.style.width = `${pct}%`;
+        
+        npProgressFill.style.width = `${pct}%`;
+        npCurrentTime.textContent = formatTime(seek);
+        npDuration.textContent = formatTime(duration);
+        
         if (seek > duration / 2 && !state.nextBlobId) preloadNextTrack(state.currentIndex + 1);
       }
       updateSyncedLyrics(seek);
@@ -1245,46 +1286,57 @@ function startProgressUpdate() {
   }, 100);
 }
 
-function updatePlayBtn() { btnPlay.textContent = state.isPlaying ? '||' : '▶'; }
-btnPlay.onclick = () => { if (!state.currentSound) return; if (state.currentSound.playing()) { state.currentSound.pause(); state.isPlaying = false; } else { state.currentSound.play(); state.isPlaying = true; } updatePlayBtn(); };
-btnNext.onclick = () => { if (state.currentIndex < state.playlist.length - 1) play(state.currentIndex + 1); };
-btnPrev.onclick = () => { if (state.currentIndex > 0) play(state.currentIndex - 1); };
-pScrubber.onclick = (e) => { if (!state.currentSound) return; const rect = pBarBg.getBoundingClientRect(); const pos = (e.clientX - rect.left) / rect.width; state.currentSound.seek(pos * state.currentSound.duration()); };
-
-// --- KEYBOARD SHORTCUTS ---
-document.addEventListener('keydown', (e) => {
-  // Ignore if typing in search
-  if (e.target === searchInput) return;
+async function preloadNextTrack(nextIndex: number) {
+  if (state.isPreloading || nextIndex >= state.tracks.length) return;
+  state.isPreloading = true;
   
-  switch(e.key) {
-    case ' ': // Space = Play/Pause
-      e.preventDefault();
-      btnPlay.click();
-      break;
+  const nextFile = state.tracks[nextIndex];
+  if (state.nextBlobId === nextFile.id) { state.isPreloading = false; return; }
+  
+  console.log(`Preloading: ${nextFile.name}`);
+  
+  try {
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${nextFile.id}?alt=media`, {
+      headers: { 'Authorization': `Bearer ${state.token}`, 'Accept': 'audio/*' }
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     
-    case 'ArrowLeft': // Previous track
-      e.preventDefault();
-      btnPrev.click();
-      break;
+    const blob = await response.blob();
+    const mime = getMimeType(nextFile.name);
+    const nextBlob = blob.slice(0, blob.size, mime);
+    const nextBlobUrl = URL.createObjectURL(nextBlob);
     
-    case 'ArrowRight': // Next track
-      e.preventDefault();
-      btnNext.click();
-      break;
+    if (state.nextBlobUrl) URL.revokeObjectURL(state.nextBlobUrl);
+    state.nextBlobUrl = nextBlobUrl;
+    state.nextBlobId = nextFile.id;
     
-    case 'l':
-    case 'L': // Toggle lyrics
-      btnLyricsToggle.click();
-      break;
-    
-    case 'Escape': // Close search or lyrics
-      if (searchContainer.style.display !== 'none') {
-        clearSearchBtn.click();
-      } else if (state.lyricsCurtainOpen) {
-        btnLyricsToggle.click();
-      }
-      break;
+    console.log(`Preloaded: ${nextFile.name}`);
+  } catch (err) {
+    console.error('Preload failed:', err);
+  } finally {
+    state.isPreloading = false;
   }
-});
+}
 
+function updatePlayBtn() { 
+  btnPlay.textContent = state.isPlaying ? '||' : '▶'; 
+  updateNowPlayingButton();
+}
+
+function togglePlay() { if (state.currentSound) state.currentSound.playing() ? state.currentSound.pause() : state.currentSound.play(); }
+function prev() { if (state.currentIndex > 0) play(state.currentIndex - 1); }
+function next() { if (state.currentIndex < state.playlist.length - 1) play(state.currentIndex + 1); }
+
+btnPlay.onclick = togglePlay;
+btnNext.onclick = next;
+btnPrev.onclick = prev;
+
+pScrubber.onclick = (e) => {
+  if (!state.currentSound) return;
+  const rect = pBarBg.getBoundingClientRect();
+  const pos = (e.clientX - rect.left) / rect.width;
+  state.currentSound.seek(pos * state.currentSound.duration());
+};
+
+// --- START ---
 loadScripts();
