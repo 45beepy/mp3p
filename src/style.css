@@ -300,3 +300,27 @@ input[type="color"] { background: none; border: 1px solid #333; width: 40px; hei
 .modal-btn:hover { background: var(--yellow); color: #000; }
 .modal-btn.cancel { border-color: #444; color: #888; }
 .modal-btn.cancel:hover { background: #222; color: #fff; }
+
+.cache-stats {
+  padding: 20px 0;
+  border-top: 2px solid var(--yellow);
+  border-bottom: 2px solid var(--yellow);
+  margin: 15px 0;
+}
+
+.cache-stats p {
+  margin: 10px 0;
+  font-weight: 700;
+}
+
+.cache-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 15px 0;
+}
+
+.cache-actions .modal-btn {
+  width: 100%;
+}
+

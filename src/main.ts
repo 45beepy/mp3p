@@ -1,6 +1,7 @@
 import './style.css'
 import { Howl } from 'howler'
 import { extractMetadata } from './services/MetadataService';
+import { audioCacheService } from './services/AudioCacheService';
 
 declare const gapi: any;
 declare const google: any;
@@ -45,6 +46,10 @@ let state = {
   albumLogos: {} as Record<string, string>,
   lyricsCache: {} as Record<string, string>,
   syncedLyricsCache: {} as Record<string, LyricLine[]>,
+  
+  // NEW: Audio cache tracking
+  cachedTracks: new Set<string>(),
+  downloadingTracks: new Set<string>(),
 
   // Playback
   playlist: [] as DriveFile[],
@@ -122,6 +127,7 @@ app.innerHTML = `
       </div>
     </div>
     <div class="header-right">
+        <button id="cache-btn" style="display:none;" title="Offline Cache">💾</button>
         <button id="edit-theme-btn" style="display:none;" title="Edit Album Colors">🎨</button>
         <button id="search-btn" title="Search Albums">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -176,6 +182,23 @@ app.innerHTML = `
       <div class="modal-actions">
         <button id="cancel-theme-btn" class="modal-btn cancel">Cancel</button>
         <button id="save-theme-btn" class="modal-btn">Save</button>
+      </div>
+    </div>
+  </div>
+  
+  <div id="cache-modal" class="modal-overlay">
+    <div class="modal">
+      <h3>Offline Cache</h3>
+      <div class="cache-stats">
+        <p><strong>Cached Tracks:</strong> <span id="cache-track-count">0</span></p>
+        <p><strong>Storage Used:</strong> <span id="cache-size">0 B</span></p>
+      </div>
+      <div class="cache-actions">
+        <button id="download-album-btn" class="modal-btn">Download This Album</button>
+        <button id="clear-cache-btn" class="modal-btn cancel">Clear All Cache</button>
+      </div>
+      <div class="modal-actions">
+        <button id="close-cache-btn" class="modal-btn">Close</button>
       </div>
     </div>
   </div>
@@ -262,6 +285,88 @@ const inputLine = document.getElementById('input-line') as HTMLInputElement;
 const inputTitleText = document.getElementById('input-titleText') as HTMLInputElement;
 const inputTitleBg = document.getElementById('input-titleBg') as HTMLInputElement;
 const inputFont = document.getElementById('input-font') as HTMLInputElement;
+
+const cacheBtn = document.getElementById('cache-btn')!;
+const cacheModal = document.getElementById('cache-modal')!;
+const downloadAlbumBtn = document.getElementById('download-album-btn')!;
+const clearCacheBtn = document.getElementById('clear-cache-btn')!;
+const closeCacheBtn = document.getElementById('close-cache-btn')!;
+const cacheTrackCount = document.getElementById('cache-track-count')!;
+const cacheSize = document.getElementById('cache-size')!;
+
+// Initialize audio cache
+audioCacheService.init().then(() => {
+  console.log('Audio cache initialized');
+  updateCacheStats();
+});
+
+async function updateCacheStats() {
+  const stats = await audioCacheService.getCacheStats();
+  cacheTrackCount.textContent = stats.trackCount.toString();
+  cacheSize.textContent = audioCacheService.formatBytes(stats.totalSize);
+}
+
+cacheBtn.onclick = async () => {
+  await updateCacheStats();
+  cacheModal.classList.add('open');
+};
+
+closeCacheBtn.onclick = () => {
+  cacheModal.classList.remove('open');
+};
+
+downloadAlbumBtn.onclick = async () => {
+  if (!state.currentAlbum) return;
+  
+  downloadAlbumBtn.textContent = 'Downloading...';
+  downloadAlbumBtn.disabled = true;
+  
+  for (let i = 0; i < state.tracks.length; i++) {
+    const track = state.tracks[i];
+    
+    // Skip if already cached
+    if (await audioCacheService.isTrackCached(track.id)) continue;
+    
+    try {
+      downloadAlbumBtn.textContent = `Downloading ${i + 1}/${state.tracks.length}...`;
+      
+      const response = await fetch(`https://www.googleapis.com/drive/v3/files/${track.id}?alt=media`, {
+        headers: { 'Authorization': `Bearer ${state.token}` }
+      });
+      
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      
+      const blob = await response.blob();
+      await audioCacheService.cacheTrack(
+        track.id,
+        track.name,
+        state.currentAlbum!.id,
+        state.currentAlbum!.name,
+        blob
+      );
+      
+      state.cachedTracks.add(track.id);
+    } catch (err) {
+      console.error(`Failed to cache ${track.name}:`, err);
+    }
+  }
+  
+  downloadAlbumBtn.textContent = 'Download This Album';
+  downloadAlbumBtn.disabled = false;
+  await updateCacheStats();
+  alert(`Album "${state.currentAlbum.name}" downloaded for offline playback!`);
+};
+
+clearCacheBtn.onclick = async () => {
+  if (!confirm('Clear all offline cache? This cannot be undone.')) return;
+  
+  clearCacheBtn.textContent = 'Clearing...';
+  await audioCacheService.clearCache();
+  state.cachedTracks.clear();
+  await updateCacheStats();
+  clearCacheBtn.textContent = 'Clear All Cache';
+  alert('Cache cleared!');
+};
 
 function setupColorInput(input: HTMLInputElement, labelId: string) {
   const label = document.getElementById(labelId)!;
@@ -805,6 +910,7 @@ async function syncLibrary() {
 // --- VIEWS ---
 async function showAlbums() {
   backBtn.style.display = 'none'; editThemeBtn.style.display = 'none';
+  cacheBtn.style.display = 'none'; // ADD THIS LINE
   mainHeader.classList.remove('album-mode');
 
   updateViewTheme(null);
@@ -848,6 +954,7 @@ async function showAlbums() {
 async function openAlbum(album: DriveFile) {
   state.currentAlbum = album;
   backBtn.style.display = 'flex'; editThemeBtn.style.display = 'flex';
+  cacheBtn.style.display = 'flex'; // ADD THIS LINE
   mainHeader.classList.add('album-mode');
   searchContainer.style.display = 'none';
   
@@ -975,33 +1082,57 @@ async function play(index: number, retryCount = 0) {
       curtainArt.src = FALLBACK_COVER;
   }
 
-  if (state.currentSound) { state.currentSound.unload(); state.currentSound = null; }
+if (state.currentSound) { state.currentSound.unload(); state.currentSound = null; }
   if (state.currentBlobUrl) { URL.revokeObjectURL(state.currentBlobUrl); state.currentBlobUrl = null; }
 
   let blobUrl: string | null = null;
   let audioBlob: Blob | null = null;
   
+  // Check preload cache first
   if (state.nextBlobId === file.id && state.nextBlobUrl) {
     console.log("Playing from Preload Cache!");
     blobUrl = state.nextBlobUrl;
     state.nextBlobId = null;
     state.nextBlobUrl = null;
-  } 
+  }
   
   const extRaw = file.name.split('.').pop()?.toLowerCase() || 'mp3';
 
   try {
       if (!blobUrl) {
-        const response = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
-            headers: { 'Authorization': `Bearer ${state.token}`, 'Accept': 'audio/*' }
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        let blob = await response.blob();
-        const mime = getMimeType(file.name);
-        audioBlob = blob.slice(0, blob.size, mime);
-        blobUrl = URL.createObjectURL(audioBlob);
+        // NEW: Check IndexedDB cache first
+        const cachedBlob = await audioCacheService.getCachedTrack(file.id);
+        
+        if (cachedBlob) {
+          console.log("Playing from IndexedDB Cache! 💾");
+          audioBlob = cachedBlob;
+          blobUrl = URL.createObjectURL(audioBlob);
+        } else {
+          // Fetch from Google Drive
+          const response = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+              headers: { 'Authorization': `Bearer ${state.token}`, 'Accept': 'audio/*' }
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          let blob = await response.blob();
+          const mime = getMimeType(file.name);
+          audioBlob = blob.slice(0, blob.size, mime);
+          blobUrl = URL.createObjectURL(audioBlob);
+          
+          // NEW: Cache this track for offline use (async, don't wait)
+          if (state.currentAlbum) {
+            audioCacheService.cacheTrack(
+              file.id,
+              file.name,
+              state.currentAlbum.id,
+              state.currentAlbum.name,
+              audioBlob
+            ).then(() => {
+              state.cachedTracks.add(file.id);
+              console.log(`Cached: ${file.name}`);
+            }).catch(err => console.error('Cache failed:', err));
+          }
+        }
       }
-
       // EXTRACT METADATA FROM BLOB
       if (audioBlob) {
         try {
