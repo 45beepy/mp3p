@@ -467,14 +467,6 @@ function closeNowPlaying() {
   nowPlayingOverlay.classList.remove('open');
 }
 
-function closeNowPlaying() {
-  nowPlayingOverlay.classList.remove('open');
-  // Also close lyrics if open
-  state.lyricsCurtainOpen = false;
-  npLyricsSection.classList.remove('open');
-  npShowLyrics.classList.remove('active');
-}
-
 function updateNowPlayingButton() {
   const svg = state.isPlaying 
     ? '<svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>'
