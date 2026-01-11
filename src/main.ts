@@ -456,7 +456,15 @@ function openNowPlaying() {
   
   updateNowPlayingButton();
   
+  // Add body class to prevent scrolling and hide address bar
+  document.body.classList.add('np-open');
   nowPlayingOverlay.classList.add('open');
+}
+
+function closeNowPlaying() {
+  // Remove body class
+  document.body.classList.remove('np-open');
+  nowPlayingOverlay.classList.remove('open');
 }
 
 function closeNowPlaying() {
