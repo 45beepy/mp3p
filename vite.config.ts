@@ -4,41 +4,45 @@ import { VitePWA } from 'vite-plugin-pwa'
 export default defineConfig({
   plugins: [
     VitePWA({
-      registerType: 'prompt',
+      registerType: 'autoUpdate',
       injectRegister: 'auto',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+      includeAssets: ['pwa-192x192.png', 'pwa-512x512.png'],
       manifest: {
-        name: 'MP3P - Music Player',
+        name: 'MP3P Music Player',
         short_name: 'MP3P',
-        description: 'Personal FLAC music player with Google Drive integration',
-        theme_color: '#000000',
+        description: 'Personal music player with Google Drive integration',
+        theme_color: '#ffff64',
         background_color: '#000000',
         display: 'standalone',
-        orientation: 'portrait',
+        orientation: 'portrait-primary',
         start_url: '/mp3p/',
         scope: '/mp3p/',
         icons: [
           {
             src: '/mp3p/pwa-192x192.png',
             sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: '/mp3p/pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any'
           },
           {
             src: '/mp3p/pwa-512x512.png',
             sizes: '512x512',
             type: 'image/png',
-            purpose: 'any maskable'
+            purpose: 'any'
+          },
+          {
+            src: '/mp3p/pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable'
           }
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,woff2}'],
         cleanupOutdatedCaches: true,
+        skipWaiting: true,
+        clientsClaim: true,
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/apis\.google\.com\/.*/i,
@@ -56,7 +60,7 @@ export default defineConfig({
           },
           {
             urlPattern: /^https:\/\/www\.googleapis\.com\/drive\/.*/i,
-            handler: 'CacheFirst',
+            handler: 'NetworkFirst',
             options: {
               cacheName: 'drive-api-cache',
               expiration: {
