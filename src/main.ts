@@ -85,12 +85,12 @@ function parseArtistAndFeatures(artistString: string): { mainArtist: string, fea
   if (!artistString) return { mainArtist: '', features: null };
   
   const featPatterns = [
-    /\s+feat\.\?\s+/i,
-    /\s+ft\.\?\s+/i,
+    /\s+feat\.?\s+/i,
+    /\s+ft\.?\s+/i,
     /\s+featuring\s+/i,
-    /\s+\(feat\.\?\s+/i,
-    /\s+\(ft\.\?\s+/i,
-    /\s+\[feat\.\?\s+/i
+    /\s+\(feat\.?\s+/i,
+    /\s+\(ft\.?\s+/i,
+    /\s+\[feat\.?\s+/i
   ];
   
   for (const pattern of featPatterns) {
@@ -203,29 +203,33 @@ app.innerHTML = `
     </div>
   </div>
 
-  <!-- Now Playing Overlay (Mobile Only) -->
+  <!-- Unified Now Playing / Lyrics View -->
   <div id="now-playing-overlay" class="now-playing-overlay">
     <div class="np-backdrop" id="np-backdrop"></div>
     
     <div class="np-container">
+      <!-- Collapse Button -->
       <div class="np-header">
-        <button class="np-close" id="np-close">
+        <button class="np-collapse" id="np-close">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="6 9 12 15 18 9"></polyline>
           </svg>
         </button>
       </div>
 
+      <!-- Album Artwork -->
       <div class="np-artwork-container">
         <img id="np-art" class="np-artwork" src="${EMPTY_COVER}">
       </div>
 
+      <!-- Track Info -->
       <div class="np-info">
         <div class="np-title" id="np-title">NOT PLAYING</div>
         <div class="np-artist" id="np-artist">UNKNOWN</div>
       </div>
 
-      <div class="np-progress-container">
+      <!-- Progress Bar with Times -->
+      <div class="np-progress-section">
         <div class="np-progress-bar" id="np-progress-bar">
           <div class="np-progress-fill" id="np-progress-fill"></div>
         </div>
@@ -235,66 +239,43 @@ app.innerHTML = `
         </div>
       </div>
 
+      <!-- Playback Controls -->
       <div class="np-controls">
         <button class="np-btn" id="np-prev">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
             <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
           </svg>
         </button>
         <button class="np-btn np-play-btn" id="np-play">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor">
             <path d="M8 5v14l11-7z"/>
           </svg>
         </button>
         <button class="np-btn" id="np-next">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
             <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
           </svg>
         </button>
       </div>
-    </div>
-  </div>
 
-  <div id="lyrics-curtain" class="lyrics-curtain">
-    <div class="curtain-header-mobile">
-      <img id="curtain-art" class="curtain-art" src="${EMPTY_COVER}">
-      <div class="curtain-meta">
-        <div id="curtain-title" class="curtain-title">NOT PLAYING</div>
-        <div id="curtain-artist" class="curtain-artist">UNKNOWN</div>
+      <!-- Lyrics Toggle Button -->
+      <div class="np-lyrics-toggle">
+        <button id="np-show-lyrics" class="lyrics-show-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 10h18M3 14h18M3 18h12"/>
+          </svg>
+          <span>Lyrics</span>
+        </button>
+      </div>
+
+      <!-- Lyrics Section (Hidden by default) -->
+      <div class="np-lyrics-section" id="np-lyrics-section">
+        <div class="lyrics-content-wrapper" id="lyrics-content-wrapper">
+          <p class="lyrics-placeholder">No lyrics available</p>
+        </div>
       </div>
     </div>
-    <div class="lyrics-curtain-content">
-      <p class="lyrics-placeholder">No track playing</p>
-    </div>
   </div>
-
-  <!-- NEW LYRICS OVERLAY -->
-<div id="lyrics-overlay" class="lyrics-overlay">
-  <div class="lyrics-backdrop" id="lyrics-backdrop"></div>
-  
-  <div class="lyrics-container">
-    <div class="lyrics-header">
-      <button class="lyrics-close" id="lyrics-close">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="6 9 12 15 18 9"></polyline>
-        </svg>
-      </button>
-    </div>
-
-    <div class="lyrics-artwork-container">
-      <img id="lyrics-art" class="lyrics-artwork" src="${EMPTY_COVER}">
-    </div>
-
-    <div class="lyrics-info">
-      <div class="lyrics-title" id="lyrics-title">NOT PLAYING</div>
-      <div class="lyrics-artist" id="lyrics-artist-name">UNKNOWN</div>
-    </div>
-
-    <div class="lyrics-content-wrapper" id="lyrics-content-wrapper">
-      <p class="lyrics-placeholder">No lyrics available</p>
-    </div>
-  </div>
-</div>
 
   <div id="player-bar">
     <div class="p-art-box">
@@ -317,14 +298,6 @@ app.innerHTML = `
       <button class="ctrl-btn" id="btn-prev">⏮</button>
       <button class="ctrl-btn play-btn" id="btn-play">▶</button>
       <button class="ctrl-btn" id="btn-next">⏭</button>
-      <button class="lyrics-toggle-btn" id="btn-lyrics-toggle">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-          <line x1="12" y1="19" x2="12" y2="23"></line>
-          <line x1="8" y1="23" x2="16" y2="23"></line>
-        </svg>
-      </button>
     </div>
   </div>
 `;
@@ -340,17 +313,11 @@ const pArt = document.getElementById('p-art') as HTMLImageElement;
 const btnPlay = document.getElementById('btn-play')!;
 const btnNext = document.getElementById('btn-next')!;
 const btnPrev = document.getElementById('btn-prev')!;
-const btnLyricsToggle = document.getElementById('btn-lyrics-toggle')!;
 const pScrubber = document.getElementById('p-scrubber')!; 
 const pBarBg = document.getElementById('p-bar-bg')!;
 const pBarFill = document.getElementById('p-bar-fill')!;
 const playerBar = document.getElementById('player-bar')!;
 const pArtBox = document.querySelector('.p-art-box') as HTMLElement;
-
-const lyricsCurtain = document.getElementById('lyrics-curtain')!;
-const curtainArt = document.getElementById('curtain-art') as HTMLImageElement;
-const curtainTitle = document.getElementById('curtain-title')!;
-const curtainArtist = document.getElementById('curtain-artist')!;
 
 const searchBtn = document.getElementById('search-btn')!;
 const searchContainer = document.getElementById('search-container')!;
@@ -388,6 +355,11 @@ const npDuration = document.getElementById('np-duration')!;
 const npPlay = document.getElementById('np-play')!;
 const npPrev = document.getElementById('np-prev')!;
 const npNext = document.getElementById('np-next')!;
+
+// Lyrics elements
+const npShowLyrics = document.getElementById('np-show-lyrics')!;
+const npLyricsSection = document.getElementById('np-lyrics-section')!;
+const lyricsContentWrapper = document.getElementById('lyrics-content-wrapper')!;
 
 function formatTime(seconds: number): string {
   if (!isFinite(seconds)) return '0:00';
@@ -489,12 +461,16 @@ function openNowPlaying() {
 
 function closeNowPlaying() {
   nowPlayingOverlay.classList.remove('open');
+  // Also close lyrics if open
+  state.lyricsCurtainOpen = false;
+  npLyricsSection.classList.remove('open');
+  npShowLyrics.classList.remove('active');
 }
 
 function updateNowPlayingButton() {
   const svg = state.isPlaying 
-    ? '<svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>'
-    : '<svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+    ? '<svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>'
+    : '<svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
   npPlay.innerHTML = svg;
 }
 
@@ -521,6 +497,49 @@ npProgressBar.onclick = (e) => {
   state.currentSound.seek(pos * state.currentSound.duration());
 };
 
+// Lyrics Toggle Handler
+npShowLyrics.onclick = () => {
+  state.lyricsCurtainOpen = !state.lyricsCurtainOpen;
+  if (state.lyricsCurtainOpen) {
+    npLyricsSection.classList.add('open');
+    npShowLyrics.classList.add('active');
+    updateNewLyricsDisplay(state.currentTrackLyrics);
+  } else {
+    npLyricsSection.classList.remove('open');
+    npShowLyrics.classList.remove('active');
+  }
+};
+
+function updateNewLyricsDisplay(lyrics: { plain: string | null, synced: LyricLine[] | null }) {
+  if (lyrics.synced && lyrics.synced.length > 0) {
+    state.currentLyrics = lyrics.synced;
+    state.currentLyricIndex = -1;
+    lyricsContentWrapper.innerHTML = lyrics.synced
+      .map((line, index) => 
+        `<p class="lyric-line" data-index="${index}" data-time="${line.time}">${line.text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`
+      )
+      .join('');
+    
+    lyricsContentWrapper.querySelectorAll('.lyric-line').forEach(el => {
+      el.addEventListener('click', () => {
+        const time = parseFloat(el.getAttribute('data-time') || '0');
+        if (state.currentSound) {
+          state.currentSound.seek(time);
+        }
+      });
+    });
+  } else if (lyrics.plain) {
+    state.currentLyrics = [];
+    state.currentLyricIndex = -1;
+    lyricsContentWrapper.innerHTML = lyrics.plain
+      .split('\n')
+      .map(line => `<p>${line.trim() === '' ? '<br>' : line.replace(/&/g, '&amp;')}</p>`)
+      .join('');
+  } else {
+    lyricsContentWrapper.innerHTML = '<p class="lyrics-placeholder">No lyrics available</p>';
+  }
+}
+
 function setupColorInput(input: HTMLInputElement, labelId: string) {
   const label = document.getElementById(labelId)!;
   input.oninput = () => { label.innerText = input.value; };
@@ -531,7 +550,6 @@ setupColorInput(inputTitleBg, 'hex-titleBg');
 setupColorInput(inputFont, 'hex-font');
 
 pArt.onerror = () => { if (pArt.src !== FALLBACK_COVER) pArt.src = FALLBACK_COVER; };
-curtainArt.onerror = () => { if (curtainArt.src !== FALLBACK_COVER) curtainArt.src = FALLBACK_COVER; };
 
 // --- EDITOR LOGIC ---
 editThemeBtn.onclick = () => {
@@ -628,79 +646,7 @@ saveThemeBtn.onclick = async () => {
   }
 };
 
-
-// NEW LYRICS OVERLAY HANDLER
-const lyricsOverlay = document.getElementById('lyrics-overlay')!;
-const lyricsClose = document.getElementById('lyrics-close')!;
-const lyricsBackdrop = document.getElementById('lyrics-backdrop') as HTMLElement;
-const lyricsArt = document.getElementById('lyrics-art') as HTMLImageElement;
-const lyricsTitle = document.getElementById('lyrics-title')!;
-const lyricsArtistName = document.getElementById('lyrics-artist-name')!;
-const lyricsContentWrapper = document.getElementById('lyrics-content-wrapper')!;
-
-btnLyricsToggle.onclick = () => {
-  state.lyricsCurtainOpen = !state.lyricsCurtainOpen;
-  if (state.lyricsCurtainOpen) {
-    // Set backdrop
-    if (pArt.src && pArt.src !== EMPTY_COVER) {
-      lyricsBackdrop.style.backgroundImage = `url(${pArt.src})`;
-    }
-    
-    // Set artwork and info
-    lyricsArt.src = pArt.src;
-    lyricsTitle.textContent = pTitle.textContent;
-    lyricsArtistName.textContent = pArtist.textContent;
-    
-    // Show overlay
-    lyricsOverlay.classList.add('open');
-    btnLyricsToggle.classList.add('active');
-    
-    // Update lyrics
-    updateNewLyricsDisplay(state.currentTrackLyrics);
-  } else {
-    lyricsOverlay.classList.remove('open');
-    btnLyricsToggle.classList.remove('active');
-  }
-};
-
-lyricsClose.onclick = () => {
-  state.lyricsCurtainOpen = false;
-  lyricsOverlay.classList.remove('open');
-  btnLyricsToggle.classList.remove('active');
-};
-
-// New function to update lyrics in new overlay
-function updateNewLyricsDisplay(lyrics: { plain: string | null, synced: LyricLine[] | null }) {
-  if (lyrics.synced && lyrics.synced.length > 0) {
-    state.currentLyrics = lyrics.synced;
-    state.currentLyricIndex = -1;
-    lyricsContentWrapper.innerHTML = lyrics.synced
-      .map((line, index) => 
-        `<p class="lyric-line" data-index="${index}" data-time="${line.time}">${line.text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`
-      )
-      .join('');
-    
-    // Add click handlers for seeking
-    lyricsContentWrapper.querySelectorAll('.lyric-line').forEach(el => {
-      el.addEventListener('click', () => {
-        const time = parseFloat(el.getAttribute('data-time') || '0');
-        if (state.currentSound) {
-          state.currentSound.seek(time);
-        }
-      });
-    });
-  } else if (lyrics.plain) {
-    state.currentLyrics = [];
-    state.currentLyricIndex = -1;
-    lyricsContentWrapper.innerHTML = lyrics.plain
-      .split('\n')
-      .map(line => `<p>${line.trim() === '' ? '<br>' : line.replace(/&/g, '&amp;')}</p>`)
-      .join('');
-  } else {
-    lyricsContentWrapper.innerHTML = '<p class="lyrics-placeholder">No lyrics available</p>';
-  }
-}
-
+// --- SEARCH UI ---
 searchBtn.onclick = () => {
   const isVisible = searchContainer.style.display !== 'none';
   searchContainer.style.display = isVisible ? 'none' : 'flex';
@@ -856,48 +802,27 @@ async function loadLyrics(trackName: string): Promise<{ plain: string | null, sy
   return await fetchLyricsFromLrclib(cleanName, state.currentAlbum.name, state.currentAlbum.name);
 }
 
-// --- LYRICS UI UPDATERS ---
-function updateLyricsPanel(lyrics: { plain: string | null, synced: LyricLine[] | null }) {
-  const lyricsContent = document.querySelector('.lyrics-content');
-  if (!lyricsContent) return;
-  if (lyrics.synced && lyrics.synced.length > 0) {
-    state.currentLyrics = lyrics.synced; state.currentLyricIndex = -1;
-    lyricsContent.innerHTML = lyrics.synced.map((line, index) => `<p class="lyric-line" data-index="${index}" data-time="${line.time}">${line.text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`).join('');
-  } else if (lyrics.plain) {
-    state.currentLyrics = []; state.currentLyricIndex = -1;
-    lyricsContent.innerHTML = lyrics.plain.split('\n').map(line => `<p>${line.trim() === '' ? '<br>' : line.replace(/&/g, '&amp;')}</p>`).join('');
-  } else { lyricsContent.innerHTML = '<p class="lyrics-placeholder">No lyrics available</p>'; }
-}
-
-function updateCurtainLyrics(lyrics: { plain: string | null, synced: LyricLine[] | null }) {
-  const curtainContent = document.querySelector('.lyrics-curtain-content');
-  if (!curtainContent) return;
-  if (lyrics.synced && lyrics.synced.length > 0) {
-    curtainContent.innerHTML = lyrics.synced.map((line, index) => `<p class="lyric-line-curtain" data-index="${index}" data-time="${line.time}">${line.text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`).join('');
-  } else if (lyrics.plain) {
-    curtainContent.innerHTML = lyrics.plain.split('\n').map(line => `<p>${line.trim() === '' ? '<br>' : line.replace(/&/g, '&amp;')}</p>`).join('');
-  } else { curtainContent.innerHTML = '<p class="lyrics-placeholder">No lyrics available</p>'; }
-}
-
 function updateSyncedLyrics(currentTime: number) {
   if (state.currentLyrics.length === 0) return;
   let newIndex = -1;
-  for (let i = state.currentLyrics.length - 1; i >= 0; i--) { if (currentTime >= state.currentLyrics[i].time) { newIndex = i; break; } }
+  for (let i = state.currentLyrics.length - 1; i >= 0; i--) {
+    if (currentTime >= state.currentLyrics[i].time) { 
+      newIndex = i; 
+      break; 
+    }
+  }
   if (newIndex === state.currentLyricIndex) return;
   state.currentLyricIndex = newIndex;
   
-  const updateActive = (container: Element | null, itemClass: string) => {
-    if (!container) return;
-    const lines = container.querySelectorAll(`.${itemClass}`);
-    lines.forEach((line, index) => {
-      if (index === newIndex) {
-        line.classList.add('active');
-        (line as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-      } else line.classList.remove('active');
-    });
-  };
-  updateActive(document.querySelector('.lyrics-content'), 'lyric-line');
-  updateActive(document.querySelector('.lyrics-curtain-content'), 'lyric-line-curtain');
+  const lines = lyricsContentWrapper.querySelectorAll('.lyric-line');
+  lines.forEach((line, index) => {
+    if (index === newIndex) {
+      line.classList.add('active');
+      (line as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+      line.classList.remove('active');
+    }
+  });
 }
 
 // --- THEMING SYSTEM ---
@@ -967,8 +892,6 @@ function updatePlayerTheme() {
       btnPlay.style.borderColor = '';
       btnPlay.style.color = '';
       pArtBox.style.backgroundColor = '';
-      btnLyricsToggle.style.borderColor = '';
-      btnLyricsToggle.style.color = '';
       return;
   }
   const colors = state.albumColors[state.playingAlbumId];
@@ -981,10 +904,6 @@ function updatePlayerTheme() {
   btnPlay.style.borderColor = colors.line;
   btnPlay.style.color = colors.titleText || '#000';
   pArtBox.style.backgroundColor = colors.line;
-  btnLyricsToggle.style.borderColor = colors.line;
-  btnLyricsToggle.style.color = colors.line;
-  curtainArtist.style.color = colors.line;
-  curtainTitle.style.color = colors.font;
 }
 
 function applyGlobalColors(lineColor: string | null) {
@@ -1286,7 +1205,7 @@ async function play(index: number, retryCount = 0) {
           audioBlob = await response.blob();
       }
 
-      const metadata = await extractMetadata(audioBlob, file.name);
+      const metadata = await extractMetadata(audioBlob);
       let displayTitle = metadata.title || parseTrackName(file.name).cleanName;
       let displayArtist = metadata.artist || (state.currentAlbum?.name || 'Unknown Artist');
 
@@ -1296,34 +1215,40 @@ async function play(index: number, retryCount = 0) {
 
       pTitle.innerHTML = displayTitle;
       pArtist.innerHTML = displayArtist + featureHTML;
-      curtainTitle.textContent = displayTitle;
-      curtainArtist.textContent = displayArtist;
       
       npTitle.textContent = displayTitle;
       npArtist.textContent = displayArtist;
 
-      if (metadata.albumArt) {
-          pArt.src = metadata.albumArt;
-          curtainArt.src = metadata.albumArt;
-          npArt.src = metadata.albumArt;
-      } else if (state.currentAlbum && state.covers[state.currentAlbum.id]) {
-          if (state.coverBlobCache[state.currentAlbum.id]) {
-              pArt.src = state.coverBlobCache[state.currentAlbum.id];
-              curtainArt.src = state.coverBlobCache[state.currentAlbum.id];
-              npArt.src = state.coverBlobCache[state.currentAlbum.id];
-          } else {
-              const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${state.covers[state.currentAlbum.id]}?alt=media`, { headers: { 'Authorization': `Bearer ${state.token}` } });
+      // Set album art from folder.jpg
+      if (state.currentAlbum && state.covers[state.currentAlbum.id]) {
+        if (state.coverBlobCache[state.currentAlbum.id]) {
+          const coverUrl = state.coverBlobCache[state.currentAlbum.id];
+          pArt.src = coverUrl;
+          npArt.src = coverUrl;
+        } else {
+          try {
+            const resp = await fetch(
+              `https://www.googleapis.com/drive/v3/files/${state.covers[state.currentAlbum.id]}?alt=media`,
+              { headers: { Authorization: `Bearer ${state.token}` } }
+            );
+            if (resp.ok) {
               const coverBlob = await resp.blob();
               const coverUrl = URL.createObjectURL(coverBlob);
               state.coverBlobCache[state.currentAlbum.id] = coverUrl;
               pArt.src = coverUrl;
-              curtainArt.src = coverUrl;
               npArt.src = coverUrl;
+            } else {
+              pArt.src = FALLBACK_COVER;
+              npArt.src = FALLBACK_COVER;
+            }
+          } catch {
+            pArt.src = FALLBACK_COVER;
+            npArt.src = FALLBACK_COVER;
           }
+        }
       } else {
-          pArt.src = FALLBACK_COVER;
-          curtainArt.src = FALLBACK_COVER;
-          npArt.src = FALLBACK_COVER;
+        pArt.src = FALLBACK_COVER;
+        npArt.src = FALLBACK_COVER;
       }
 
       state.currentBlobUrl = blobUrl;
@@ -1343,7 +1268,7 @@ async function play(index: number, retryCount = 0) {
 
       const lyrics = await loadLyrics(file.name);
       state.currentTrackLyrics = lyrics;
-      if (state.lyricsCurtainOpen) updateCurtainLyrics(lyrics);
+      if (state.lyricsCurtainOpen) updateNewLyricsDisplay(lyrics);
 
   } catch (err) {
       console.error(err);
