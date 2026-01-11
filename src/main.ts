@@ -1350,10 +1350,6 @@ pScrubber.onclick = (e) => {
   const pos = (e.clientX - rect.left) / rect.width;
   state.currentSound.seek(pos * state.currentSound.duration());
 };
-
-// --- START ---
-loadScripts();
-
 // Register Service Worker for PWA
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -1366,4 +1362,8 @@ if ('serviceWorker' in navigator) {
       });
   });
 }
+// --- START ---
+loadScripts();
+
+
 
